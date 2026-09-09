@@ -12,14 +12,16 @@ import
   makeSmokeTexture,
   makeRoundGeometry,
   makeTracerMaterial,
-  buildMissile
+  buildMissile,
+  buildBomb
 }
 from './visuals.js';
 import
 {
   MAX_SHOTS,
   MAX_ENEMY_SHOTS,
-  MAX_MISSILES
+  MAX_MISSILES,
+  MAX_BOMBS
 }
 from '../game.js';
 
@@ -352,6 +354,15 @@ export class ArenaView
       this.scene.add(model);
       return model;
     });
+    this.bombModels = Array.from(
+    {
+      length: MAX_BOMBS
+    }, () =>
+    {
+      const model = buildBomb(this);
+      this.scene.add(model);
+      return model;
+    });
     this.flareMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1), new THREE.MeshBasicMaterial(
     {
       color: 0xffdc8a
@@ -417,6 +428,19 @@ export class ArenaView
         y: (1 - p.y) * 50
       });
     }
+    for (const bomb of game.bombs)
+    {
+      if (!bomb.alive) continue;
+      const point = this.flightDirection.set(bomb.position.x, bomb.position.y, bomb.position.z).project(this.camera);
+      if (point.z < -1 || point.z > 1 || Math.abs(point.x) > .95 || Math.abs(point.y) > .95) continue;
+      markers.push(
+      {
+        x: (point.x + 1) * 50,
+        y: (1 - point.y) * 50,
+        bomb: true,
+        label: `BOMB · ${Math.max(0, bomb.duration - bomb.age).toFixed(1)}s`
+      });
+    }
     return markers;
   }
 
@@ -431,6 +455,11 @@ export class ArenaView
       y: (1 - point.y) * 50,
       distance: sight.distance
     };
+  }
+
+  flightHalfWidth(distance)
+  {
+    return distance * Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect;
   }
 
   isAttackVisible(target)
@@ -571,6 +600,16 @@ export class ArenaView
       model.userData.flame.scale.y = power * (1 + Math.sin(this.clock * 90) * .12);
     });
     this.missileSmoke.update(dt, this.canvas.height / (2 * Math.tan(this.camera.fov * Math.PI / 360)));
+    this.bombModels.forEach((model, i) =>
+    {
+      const bomb = game.bombs[i];
+      model.visible = Boolean(bomb?.alive);
+      if (!bomb?.alive) return;
+      model.position.set(bomb.position.x, bomb.position.y, bomb.position.z);
+      this.flightDirection.set(bomb.velocity.x, bomb.velocity.y, bomb.velocity.z).normalize();
+      model.quaternion.setFromUnitVectors(FORWARD, this.flightDirection);
+      model.userData.glow.scale.setScalar(3 + Math.sin(bomb.age * 12) * .4);
+    });
     n = 0;
     for (const flare of game.flares)
     {

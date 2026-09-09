@@ -194,3 +194,11 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
 .aim-option { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .aim-option input { margin: 0; width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 .aim-option small { display: block; margin-top: 5px; font: 11px Arial, sans-serif; letter-spacing: 0; opacity: .8; }
+
+.bomb-warning { position: absolute; z-index: 5; left: 50%; top: 24%; transform: translateX(-50%); padding: 10px 18px; border: 1px solid #ff985d; border-radius: 3px; background: #391d17e8; color: #ffbe79; text-align: center; pointer-events: none; box-shadow: 0 0 24px #ff60252b; }
+.bomb-warning strong { display: block; font: bold 18px 'Courier New', monospace; letter-spacing: .12em; }
+.bomb-warning span { display: block; margin-top: 5px; font: bold 11px 'Courier New', monospace; }
+.attack-indicators .bomb-marker { transform: translate(-50%, calc(-100% - 12px)); border-width: 2px; color: #fff0bf; background: #5a2117e6; }
+.panel-open .bomb-warning { display: none; }
+
+.attack-indicators .bomb-marker::before { content: ''; position: absolute; left: calc(50% - 7px); bottom: -20px; width: 14px; height: 14px; border: 1px solid #ffbe79; border-radius: 50%; }

@@ -26,6 +26,8 @@ export const GUN_SPEED = GUN_AMMO.muzzleVelocity;
 export const GUN_RANGE = 2000;
 export const GUN_LIFETIME = 6;
 export const MAX_ENEMY_SHOTS = 128;
+export const MAX_BOMBS = 12;
+const TURN_DISTANCE = 1100;
 export const MAX_HEALTH = 75;
 export const REGEN_DELAY = 5;
 export const REGEN_RATE = 4;
@@ -155,7 +157,8 @@ export const DIFFICULTIES = {
     interval: 4.2,
     count: 3,
     radius: 1.3,
-    damage: 5,
+    damage: 1.5,
+    bombDamage: 35,
     burst: 2,
     flares: 0.25
   },
@@ -165,7 +168,8 @@ export const DIFFICULTIES = {
     interval: 3.2,
     count: 4,
     radius: 1,
-    damage: 7,
+    damage: 2.6,
+    bombDamage: 48,
     burst: 2,
     flares: 0.5
   },
@@ -175,7 +179,8 @@ export const DIFFICULTIES = {
     interval: 2.2,
     count: 6,
     radius: 0.9,
-    damage: 8,
+    damage: 3.5,
+    bombDamage: 60,
     burst: 3,
     flares: 0.7
   }
@@ -332,9 +337,10 @@ class ProjectilePool
 
 export class ArcadeGame
 {
-  constructor(physics, random = Math.random, isAttackVisible = () => false)
+  constructor(physics, random = Math.random, isAttackVisible = () => false, flightHalfWidth = distance => distance * .5)
   {
     this.isAttackVisible = isAttackVisible;
+    this.flightHalfWidth = flightHalfWidth;
     this.physics = physics;
     this.random = random;
     this.projectiles = new ProjectilePool(physics);
@@ -351,6 +357,7 @@ export class ArcadeGame
     this.projectiles.clear();
     this.targets = [];
     this.enemyShots = [];
+    this.bombs = [];
     this.missiles = [];
     this.flares = [];
     this.missileCooldown = 0;
@@ -365,7 +372,6 @@ export class ArcadeGame
     this.hits = 0;
     this.shots = 0;
     this.destroyed = 0;
-    this.escaped = 0;
     this.combo = 0;
     this.bestCombo = 0;
     this.lastKill = -100;
@@ -408,7 +414,7 @@ export class ArcadeGame
     const kind = initialKind ?? (rand() < 0.5 ? 'wing' : 'light');
     const sector = [-1, 0, 1][this.spawnSector++ % 3];
     const distance = 2500 + rand() * 1500;
-    const bearing = sector * (0.5 + rand() * 0.4) + (rand() - 0.5) * 0.12;
+    const bearing = Math.atan(this.flightHalfWidth(1) * .6) * (sector * (.65 + rand() * .3) + (rand() - .5) * .12);
     const z = initialZ ?? -Math.cos(bearing) * distance;
     const y = 220 + rand() * 300;
     const x = initialX ?? Math.sin(bearing) * distance;
@@ -425,45 +431,48 @@ export class ArcadeGame
       x: x / range,
       z: z / range
     };
+    const turnRadius = this.turnRadius();
+    const lane = side * turnRadius;
     const offset = path === 'sweep' ? 320 : path === 'cross' ? -280 : 160;
     const route = makeRoute([
       position,
       {
-        x: x * .7 - outward.z * bend * offset,
+        x: clamp(x * .6 - outward.z * bend * offset * .3, -this.flightHalfWidth(1800) * .5, this.flightHalfWidth(1800) * .5),
         y: y * .82 + (path === 'swoop' ? 60 : 0),
         z: z * .7 + outward.x * bend * offset
       },
       {
-        x: outward.x * 1200,
-        y: 140,
-        z: outward.z * 1200
+        x: lane,
+        y: 180,
+        z: -2100
       },
       {
-        x: outward.x * 750,
-        y: 90,
-        z: outward.z * 750
+        x: lane * .8,
+        y: 130,
+        z: -1700
       }
     ]);
     const first = route[1];
     const heading = Math.atan2(-(first.x - x), -(first.z - z));
     const pitch = Math.atan2(first.y - y, Math.hypot(first.x - x, first.z - z));
+    const cruiseSpeed = (95 + rand() * 25) * this.tuning.speed * (1 + (this.wave - 1) * .15);
+    const turnSpeed = Math.min(cruiseSpeed * .85, Math.sqrt(9.81 * Math.tan(.7) * turnRadius), turnRadius * .14);
     const target = {
       id: ++this.nextId,
       kind,
       path,
       age: 0,
       phase: rand() * Math.PI * 2,
-      speed: (95 + rand() * 25) * this.tuning.speed * (1 + (this.wave - 1) * .15),
+      speed: Math.min(cruiseSpeed, Math.sqrt(turnSpeed * turnSpeed + 8 * Math.max(0, -z - TURN_DISTANCE - 220))),
+      cruiseSpeed,
+      side,
+      turnRadius,
+      bombDropped: false,
+      passes: 0,
       route,
       routeDistance: 0,
       routeIndex: 0,
       flightPhase: 'approach',
-      egress:
-      {
-        x: -outward.x * 4000 - outward.z * side * 1500,
-        y: 700,
-        z: -outward.z * 4000 + outward.x * side * 1500
-      },
       pitchRate: 0,
       evasion: 0,
       position,
@@ -493,21 +502,50 @@ export class ArcadeGame
     this.targets.push(target);
   }
 
+  turnRadius()
+  {
+    const width = this.flightHalfWidth(1) * .72;
+    return Math.max(100, Math.min(540, TURN_DISTANCE * width / Math.sqrt(1 + width * width) * .5));
+  }
+
+  beginTurn(target, phase)
+  {
+    target.flightPhase = phase;
+    if (phase === 'break') target.side = Math.sign(target.position.x) || target.side;
+    target.turnStart = target.heading;
+  }
+
   moveTarget(target, dt, firing)
   {
     if (dt <= 0) return;
     Object.assign(target.previous, target.position);
     target.age += dt;
+    target.turnRadius += (this.turnRadius() - target.turnRadius) * (1 - Math.exp(-dt));
     const range = Math.hypot(target.position.x, target.position.z);
-    const threatened = (firing && range < 900) || this.missiles.some(missile => missile.targetId === target.id && Math.hypot(missile.position.x - target.position.x, missile.position.y - target.position.y, missile.position.z - target.position.z) < 850);
+    const threatened = (firing && range < 1400) || this.missiles.some(missile => missile.targetId === target.id && Math.hypot(missile.position.x - target.position.x, missile.position.y - target.position.y, missile.position.z - target.position.z) < 850);
     target.evasion += ((threatened ? 1 : 0) - target.evasion) * (1 - Math.exp(-dt * .8));
-    if (target.flightPhase === 'approach' && range < 1200) target.flightPhase = 'run';
-    if (target.flightPhase === 'run' && (range < 210 || target.position.y < 25)) target.flightPhase = 'egress';
+    if (target.flightPhase === 'approach' && target.position.z > -2100) target.flightPhase = 'run';
+    if (target.flightPhase === 'run' && target.position.z > -TURN_DISTANCE) this.beginTurn(target, 'break');
+    if (target.flightPhase === 'egress' && target.position.z < -3100) this.beginTurn(target, 'return');
+    if (['break', 'return'].includes(target.flightPhase) && Math.abs(target.heading - target.turnStart) >= Math.PI - .12)
+    {
+      if (target.flightPhase === 'return')
+      {
+        target.flightPhase = 'run';
+        target.attacks = 0;
+        target.bombDropped = false;
+        target.passes++;
+      }
+      else target.flightPhase = 'egress';
+    }
+    const turning = target.flightPhase === 'break' || target.flightPhase === 'return';
+    const turnSpeed = Math.min(target.cruiseSpeed * .85, Math.sqrt(9.81 * Math.tan(.7) * target.turnRadius), target.turnRadius * .14);
+    const distanceToTurn = target.flightPhase === 'egress' ? target.position.z + 3100 : -target.position.z - TURN_DISTANCE;
+    const desiredSpeed = turning ? turnSpeed : Math.min(target.cruiseSpeed, Math.sqrt(turnSpeed * turnSpeed + 8 * Math.max(0, distanceToTurn - 220)));
+    target.speed += clamp(desiredSpeed - target.speed, -4 * dt, 3 * dt);
     let destination;
     if (target.flightPhase === 'approach')
     {
-      // Follow a distant point on the route. The route guides the aircraft;
-      // its bank and pitch limits determine where it can actually fly.
       let closest = Infinity;
       for (let i = target.routeIndex; i < target.route.length; i++)
       {
@@ -525,16 +563,21 @@ export class ArcadeGame
       while (ahead < target.route.length - 1 && target.route[ahead].distance < lookAhead) ahead++;
       destination = target.route[ahead];
     }
-    else destination = target.flightPhase === 'run' ? PLAYER_POSITION : target.egress;
+    else if (target.flightPhase === 'run') destination = PLAYER_POSITION;
+    else destination = {
+      x: -target.side * target.turnRadius,
+      y: 240,
+      z: -3700
+    };
     const dx = destination.x - target.position.x,
       dy = destination.y - target.position.y,
       dz = destination.z - target.position.z;
-    const desiredHeading = Math.atan2(-dx, -dz) + (target.flightPhase !== 'egress' ? Math.sin(target.age * .45 + target.phase) * target.evasion * .06 : 0);
+    const desiredHeading = Math.atan2(-dx, -dz) + (target.flightPhase === 'run' ? Math.sin(target.age * .45 + target.phase) * target.evasion * .035 : 0);
     const headingError = Math.atan2(Math.sin(desiredHeading - target.heading), Math.cos(desiredHeading - target.heading));
-    const desiredBank = clamp(Math.atan(headingError * .8 * target.speed / 9.81), -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT);
-    target.bank += clamp(desiredBank - target.bank, -AIRCRAFT_ROLL_RATE * dt, AIRCRAFT_ROLL_RATE * dt);
+    const desiredBank = turning ? -target.side * Math.atan(target.speed * target.speed / (9.81 * target.turnRadius)) : clamp(Math.atan(headingError * .8 * target.speed / 9.81), -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT);
+    target.bank += clamp(clamp(desiredBank, -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT) - target.bank, -AIRCRAFT_ROLL_RATE * dt, AIRCRAFT_ROLL_RATE * dt);
     target.heading += 9.81 * Math.tan(target.bank) / target.speed * dt;
-    const desiredPitch = clamp(Math.atan2(dy, Math.hypot(dx, dz)), -.35, .4);
+    const desiredPitch = turning ? clamp((180 - target.position.y) * .002, -.08, .12) : clamp(Math.atan2(dy, Math.hypot(dx, dz)), -.25, .3);
     const pitchRate = clamp((desiredPitch - target.pitch) * .8, -AIRCRAFT_PITCH_RATE, AIRCRAFT_PITCH_RATE);
     target.pitchRate += (pitchRate - target.pitchRate) * (1 - Math.exp(-dt * 2));
     target.pitch += target.pitchRate * dt;
@@ -563,7 +606,7 @@ export class ArcadeGame
       dy = 8 - target.position.y,
       dz = -target.position.z;
     const distance = Math.hypot(dx, dy, dz);
-    if (!target.alive || distance < 160 || distance > 950 || target.flightPhase === 'egress') return false;
+    if (!target.alive || distance < 160 || distance > 1400 || !['approach', 'run'].includes(target.flightPhase)) return false;
     const forward = aircraftForward(target);
     return (forward.x * dx + forward.y * dy + forward.z * dz) / distance > Math.cos(.09);
   }
@@ -793,7 +836,7 @@ export class ArcadeGame
       {
         let victim = null,
           contact = Infinity;
-        for (const aircraft of this.targets)
+        for (const aircraft of [...this.targets, ...this.bombs])
         {
           if (!aircraft.alive) continue;
           const t = sweptHit(missile.previous, missile.position, aircraft.previous, aircraft.position, aircraft.radius);
@@ -806,7 +849,8 @@ export class ArcadeGame
         if (victim)
         {
           missile.alive = false;
-          this.destroyTarget(victim);
+          if (victim.kind === 'bomb') this.destroyBomb(victim);
+          else this.destroyTarget(victim);
         }
       }
       if (missile.alive && missile.position.y <= surfaceHeight(missile.position.x, missile.position.z))
@@ -824,6 +868,113 @@ export class ArcadeGame
       if (Math.hypot(missile.position.x, missile.position.y - 8, missile.position.z) > MISSILE_RANGE) missile.alive = false;
     }
     this.missiles = this.missiles.filter(missile => missile.alive);
+  }
+
+  dropBomb(target)
+  {
+    const distance = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
+    if (target.bombDropped || this.bombs.length >= MAX_BOMBS || distance > 1080 || target.visibleFor < ATTACK_REACTION_TIME || !this.isAttackVisible(target) || !['run', 'break'].includes(target.flightPhase)) return;
+    target.bombDropped = true;
+    const position = {
+      x: target.position.x,
+      y: target.position.y - 4,
+      z: target.position.z
+    };
+    // Fictional glide-bomb arc gives a readable warning and time to intercept it.
+    const duration = 3.2 + distance / 1800;
+    const impact = {
+      x: (this.random() - .5) * 24,
+      y: 3,
+      z: (this.random() - .5) * 24
+    };
+    const velocity = {
+      x: (impact.x - position.x) / duration,
+      y: (impact.y - position.y + 4.905 * duration * duration) / duration,
+      z: (impact.z - position.z) / duration
+    };
+    this.bombs.push(
+    {
+      id: ++this.nextId,
+      kind: 'bomb',
+      position,
+      previous:
+      {
+        ...position
+      },
+      velocity,
+      age: 0,
+      duration,
+      radius: 7,
+      damage: this.tuning.bombDamage,
+      alive: true
+    });
+    this.events.push(
+    {
+      type: 'bombDrop',
+      position:
+      {
+        ...position
+      }
+    });
+  }
+
+  moveBombs(dt)
+  {
+    for (const bomb of this.bombs)
+    {
+      if (!bomb.alive) continue;
+      Object.assign(bomb.previous, bomb.position);
+      bomb.age += dt;
+      for (const axis of ['x', 'y', 'z']) bomb.position[axis] += bomb.velocity[axis] * dt;
+      bomb.position.y -= 4.905 * dt * dt;
+      bomb.velocity.y -= 9.81 * dt;
+    }
+  }
+
+  destroyBomb(bomb)
+  {
+    if (!bomb.alive) return;
+    bomb.alive = false;
+    this.score += 50;
+    this.events.push(
+    {
+      type: 'bombDestroyed',
+      position:
+      {
+        ...bomb.position
+      },
+      points: 50
+    });
+  }
+
+  resolveBombs()
+  {
+    for (const bomb of this.bombs)
+    {
+      if (!bomb.alive) continue;
+      const contact = surfaceContact(bomb.previous, bomb.position);
+      if (contact !== null)
+      {
+        for (const axis of ['x', 'y', 'z']) bomb.position[axis] = bomb.previous[axis] + (bomb.position[axis] - bomb.previous[axis]) * contact;
+        bomb.alive = false;
+        this.events.push(
+        {
+          type: 'bombImpact',
+          position:
+          {
+            ...bomb.position
+          }
+        });
+        const distance = Math.hypot(bomb.position.x, bomb.position.y - 3, bomb.position.z);
+        if (distance < 70) this.takeDamage(bomb.damage * (1 - distance / 70),
+        {
+          ...bomb.position
+        });
+        if (this.state !== 'playing') return;
+      }
+      else if (bomb.age > 8) bomb.alive = false;
+    }
+    this.bombs = this.bombs.filter(bomb => bomb.alive);
   }
 
   attack(target)
@@ -861,7 +1012,8 @@ export class ArcadeGame
         y: 0,
         z: 0
       },
-      damage: this.tuning.damage / count
+      // Damage is per hit, not shared across the entire burst.
+      damage: this.tuning.damage
     });
     target.attacks++;
     target.attackClock = .9;
@@ -899,6 +1051,7 @@ export class ArcadeGame
     this.enemyShots.length = 0;
     this.missiles.length = 0;
     this.flares.length = 0;
+    this.bombs.length = 0;
     this.events.push(
     {
       type: 'ended'
@@ -923,6 +1076,7 @@ export class ArcadeGame
     this.enemyShots.length = 0;
     this.missiles.length = 0;
     this.flares.length = 0;
+    this.bombs.length = 0;
     this.events.length = 0;
     for (const target of this.targets) target.muzzleFlash = 0;
   }
@@ -953,6 +1107,8 @@ export class ArcadeGame
       this.moveTarget(target, dt, firing && !this.overheated);
       this.updateAttackVisibility(target, dt);
     }
+
+    this.moveBombs(dt);
 
     const canFire = firing && !this.overheated;
     this.spool = Math.max(0, Math.min(1, this.spool + (canFire ? 3.5 : -2.5) * dt));
@@ -992,7 +1148,7 @@ export class ArcadeGame
       let victim = null;
       const groundContact = surfaceContact(projectile.previous, projectile.position);
       let contact = groundContact ?? Infinity;
-      for (const target of this.targets)
+      for (const target of [...this.targets, ...this.bombs])
       {
         if (!target.alive) continue;
         const t = sweptHit(projectile.previous, projectile.position, target.previous, target.position, target.radius);
@@ -1016,6 +1172,12 @@ export class ArcadeGame
         position: impact
       });
       if (!victim) continue;
+      if (victim.kind === 'bomb')
+      {
+        this.hits++;
+        this.destroyBomb(victim);
+        continue;
+      }
       // HE hit damage is a game rule, independent of the sourced flight data.
       victim.health -= 2;
       victim.flash = 0.15;
@@ -1036,18 +1198,11 @@ export class ArcadeGame
       if (!target.alive) continue;
       target.attackClock -= dt;
       if (target.attacks < this.tuning.burst && target.attackClock <= 0 && this.canAttack(target)) this.attack(target);
-      if ((target.flightPhase === 'egress' && Math.hypot(target.position.x, target.position.z) > 2300) || target.age > 85)
-      {
-        target.alive = false;
-        this.escaped++;
-        this.combo = 0;
-        this.events.push(
-        {
-          type: 'escaped'
-        });
-      }
+      this.dropBomb(target);
     }
     this.targets = this.targets.filter(target => target.alive);
+    this.resolveBombs();
+    if (this.state !== 'playing') return;
     this.advanceEnemyShots(dt);
     if (this.state !== 'playing') return;
     const regenTime = Math.max(0, this.time - Math.max(this.time - dt, this.lastDamage + REGEN_DELAY));
@@ -1142,6 +1297,7 @@ export class ArcadeGame
     this.enemyShots.length = 0;
     this.missiles.length = 0;
     this.flares.length = 0;
+    this.bombs.length = 0;
     this.events.length = 0;
   }
 }

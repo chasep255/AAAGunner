@@ -10,7 +10,8 @@ export function synthesizeSound(kind, sampleRate = 44100)
     missile: 1.4,
     hit: .28,
     motor: 1,
-    engine: 2
+    engine: 2,
+    bombAlert: .85
   } [kind];
   const samples = new Float32Array(Math.ceil(duration * sampleRate));
   let seed = 771,
@@ -38,6 +39,11 @@ export function synthesizeSound(kind, sampleRate = 44100)
       const body = low * 5 * Math.exp(-t * decay) + Math.sin(2 * Math.PI * (big ? 47 : 75) * t) * Math.exp(-t * (big ? 4 : 13)) * .6;
       const debris = (noise - mid) * Math.pow(Math.max(0, Math.sin(t * 57) * Math.sin(t * 23)), 10) * Math.exp(-t * (big ? 1.8 : 4)) * .55;
       value = crack + body + debris;
+    }
+    if (kind === 'bombAlert')
+    {
+      const pulse = t % .28;
+      value = Math.sin(2 * Math.PI * (pulse < .12 ? 1050 : 700) * t) * Math.min(1, pulse * 180) * Math.exp(-pulse * 13) * .5;
     }
     if (kind === 'missile') value = (mid * 2.2 + low * 2.2) * Math.min(1, t * 90) * Math.exp(-t * 2.7) + Math.sin(2 * Math.PI * 58 * t) * Math.exp(-t * 13) * .5;
     if (kind === 'hit') value = (noise - mid) * Math.exp(-t * 55) * .75 + Math.sin(2 * Math.PI * 1700 * t) * Math.exp(-t * 35) * .14;
@@ -98,7 +104,7 @@ export class GameAudio
         this.echoLevel.gain.value = .16;
         this.reverb.connect(this.echoLevel).connect(this.compressor);
         this.bank = {};
-        for (const kind of ['gun', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine'])
+        for (const kind of ['gun', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine', 'bombAlert'])
         {
           const data = synthesizeSound(kind, this.context.sampleRate);
           const buffer = this.context.createBuffer(1, data.length, this.context.sampleRate);
@@ -166,6 +172,11 @@ export class GameAudio
   }
   event(kind, position, time)
   {
+    if (kind === 'bombAlert')
+    {
+      this.play('bombAlert', null, .55);
+      return;
+    }
     if (kind === 'gun')
     {
       this.play('gun', null, .48);

@@ -453,3 +453,42 @@ export function buildMissile(view)
   group.visible = false;
   return group;
 }
+export function buildBomb(view)
+{
+  const group = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial(
+  {
+    color: 0x59634b,
+    metalness: .55,
+    roughness: .4
+  });
+  const stripe = new THREE.MeshBasicMaterial(
+  {
+    color: 0xffbe50,
+    toneMapped: false
+  });
+  const hull = view.mesh(new THREE.SphereGeometry(1, 16, 12), body, group);
+  hull.scale.set(.65, .65, 2.4);
+  const band = view.mesh(new THREE.CylinderGeometry(.67, .67, .25, 16), stripe, group, 0, 0, -1);
+  band.rotation.x = Math.PI / 2;
+  const wing = view.mesh(new THREE.BoxGeometry(4.8, .12, .8), body, group, 0, .1, .4);
+  wing.rotation.y = -.12;
+  for (let i = 0; i < 4; i++)
+  {
+    const fin = view.mesh(new THREE.BoxGeometry(1.4, .09, .85), body, group, 0, 0, 1.8);
+    fin.rotation.z = i * Math.PI / 2;
+  }
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial(
+  {
+    map: view.glowTexture,
+    color: 0xff683b,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  }));
+  glow.scale.setScalar(3);
+  group.add(glow);
+  group.userData.glow = glow;
+  group.visible = false;
+  return group;
+}

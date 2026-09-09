@@ -10,7 +10,7 @@ import
 from './audio.js';
 const ui = Object.fromEntries([
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
-  'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
+  'bombWarning', 'bombTime', 'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
   'heatWarning', 'gunStatus', 'heatPercent', 'heatMeter', 'heatFill', 'downed',
   'accuracy', 'shots', 'gamePanel', 'panelTitle', 'panelDescription',
   'roundSummary', 'roundOptions', 'panelStartBtn', 'restartBtn', 'helpBtn', 'helpModal',
@@ -68,6 +68,7 @@ function showPanel(mode)
   ui.missileBtn.disabled = true;
   ui.toast.textContent = '';
   ui.heatWarning.hidden = true;
+  ui.bombWarning.hidden = true;
   ui.difficulty.disabled = mode === 'paused';
   if (mode === 'paused')
   {
@@ -246,14 +247,18 @@ function updateHud()
   ui.healthFill.style.width = `${game.healthPercent}%`;
   ui.healthMeter.setAttribute('aria-valuenow', health);
   ui.healthMeter.classList.toggle('low', health <= 30);
-  const incoming = game.enemyShots.length > 0;
+  const incoming = game.enemyShots.length > 0 || game.bombs.some(bomb => bomb.alive);
+  const bombs = game.bombs.filter(bomb => bomb.alive);
+  ui.bombWarning.hidden = game.state !== 'playing' || bombs.length === 0;
+  if (bombs.length) ui.bombTime.textContent = `SHOOT IT DOWN · ${Math.max(0, Math.min(...bombs.map(bomb => bomb.duration - bomb.age))).toFixed(1)}s`;
   ui.healthStatus.textContent = incoming ? 'INCOMING FIRE' : game.regenerating ? 'RECOVERING' : game.healthPercent < 100 ? 'RECOVERY PENDING' : 'READY';
   ui.healthStatus.parentElement.classList.toggle('incoming', incoming);
   ui.healthStatus.parentElement.classList.toggle('recovering', game.regenerating && !incoming);
   ui.attackIndicators.replaceChildren(...(game.state === 'playing' ? view.attackMarkers(game).map(position =>
   {
     const marker = document.createElement('span');
-    marker.textContent = 'FIRING';
+    marker.textContent = position.label || 'FIRING';
+    if (position.bomb) marker.classList.add('bomb-marker');
     marker.style.left = `${position.x}%`;
     marker.style.top = `${position.y}%`;
     return marker;
@@ -445,7 +450,7 @@ try
   ]);
   const physics = await loadPhysics();
   view = new ArenaView(ui.skyCanvas);
-  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target));
+  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target), distance => view.flightHalfWidth(distance));
   ui.engineStatus.textContent = 'SYSTEMS READY';
   setStartLabel('Deploy');
   ui.reticle.hidden = true;
@@ -503,6 +508,22 @@ try
         {
           view.burst(event.position, false);
           audio.event('distantImpact', event.position, game.time);
+        }
+        if (event.type === 'bombDrop')
+        {
+          audio.event('bombAlert', null, game.time);
+          ui.toast.textContent = 'BOMB RELEASED — SHOOT IT DOWN';
+          toastUntil = timestamp + 1800;
+        }
+        if (event.type === 'bombImpact' || event.type === 'bombDestroyed')
+        {
+          view.burst(event.position, true);
+          audio.event('explosion', event.position, game.time);
+          if (event.type === 'bombDestroyed')
+          {
+            ui.toast.textContent = '+50  BOMB INTERCEPTED';
+            toastUntil = timestamp + 1400;
+          }
         }
         if (event.type === 'damage')
         {
