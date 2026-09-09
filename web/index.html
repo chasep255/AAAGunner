@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#101c22">
+  <meta name="description" content="Hold the coast. A 3D arcade game with attacking aircraft, a rotary gun, homing missiles, and spatial sound.">
+  <title>AAAGunner</title>
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles/game.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js"}}</script>
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <main class="arena panel-open" id="arena" aria-label="AAAGunner game">
+    <canvas id="skyCanvas" tabindex="0" aria-label="Move the mouse to aim. Hold left mouse or Space to fire. Right-click or M launches a missile. P or Escape pauses."></canvas>
+    <header class="game-header">
+      <a class="brand" href="./" aria-label="AAAGunner home"><img src="./assets/icon.svg" alt="" width="30" height="30"><span>AAA<span class="brand-light">GUNNER</span></span></a>
+      <nav class="controls" aria-label="Game controls">
+        <button id="pauseBtn" disabled>Pause <kbd>P</kbd></button>
+        <button id="stopBtn" disabled title="End this round and open settings">Stop</button>
+        <button id="restartBtn" disabled>Restart</button>
+        <button id="soundBtn" aria-pressed="true">Sound on</button>
+        <button id="fullscreenBtn">Fullscreen</button>
+        <button id="helpBtn">Help</button>
+      </nav>
+    </header>
+      <div id="damageOverlay" class="damage-overlay" aria-hidden="true"></div>
+      <div id="attackIndicators" class="attack-indicators" aria-hidden="true"></div>
+      <div class="hud-top">
+        <div class="score-block"><span class="hud-label">SCORE</span><strong id="score">00000</strong><span class="combo" id="combo">BUILD A STREAK</span></div>
+        <div class="round-block"><span class="hud-label" id="wave">COASTAL ARENA</span><strong id="timer">01:30</strong><span class="round-dots" aria-hidden="true">● ○ ○</span></div>
+        <div class="hud-right">
+
+          <div class="health-block"><div><span class="hud-label">HEALTH</span><strong id="healthValue">100%</strong></div><div class="health-track" role="meter" aria-label="Player health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="healthMeter"><span id="healthFill"></span></div><span id="healthStatus">READY</span></div>
+        </div>
+      </div>
+      <div id="reticle" class="reticle" aria-hidden="true"><i></i><b></b></div>
+      <div id="toast" class="game-toast" role="status" aria-live="polite"></div>
+      <div id="heatWarning" class="heat-warning" hidden>BARRELS HOT <span>Let them cool</span></div>
+      <div class="hud-bottom">
+        <div class="weapon-status">
+          <div class="gun-status"><span class="hud-label">ROTARY DRIVE</span><strong id="gunStatus">STANDING BY</strong><div class="drive-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+          <div class="missile-block"><span class="hud-label">HOMING MISSILES</span><strong id="missileStatus">5/5 · READY</strong><span id="missileReload">MAGAZINE FULL</span><button id="missileBtn" class="btn btn-secondary" disabled title="Fire a homing missile (right-click or M)">Fire missile</button></div>
+        </div>
+        <div class="heat-block"><div><span class="hud-label">BARREL HEAT</span><span id="heatPercent">0%</span></div><div class="heat-track" role="meter" aria-label="Barrel heat" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="heatMeter"><span id="heatFill"></span></div><p>Short bursts. Longer streaks.</p></div>
+        <div class="session-stats"><div><strong id="downed">0</strong><span>PLANES</span></div><div><strong id="accuracy">0%</strong><span>GUN HITS</span></div><div><strong id="shots">0</strong><span>ROUNDS</span></div></div>
+      </div>
+
+
+    <section class="game-panel" id="gamePanel" aria-labelledby="panelTitle">
+      <div class="panel-content">
+        <div class="eyebrow"><span class="status-dot"></span> COASTAL DEFENSE <span class="sector">SECTOR 01</span></div>
+        <h1 id="panelTitle">AAA<span>GUNNER</span></h1>
+        <p id="panelDescription">Hold the coast. Take on three waves of incoming aircraft with a rotary gun and homing missiles. Keep firing. Stay alive.</p>
+        <div class="round-summary" id="roundSummary" hidden></div>
+        <div class="round-options" id="roundOptions">
+          <label for="difficulty">DIFFICULTY<select id="difficulty"><option value="relaxed">Relaxed</option><option value="arcade" selected>Arcade</option><option value="frenzy">Frenzy</option></select></label>
+          <label class="volume-control" for="volume">VOLUME <span id="volumeValue">80%</span><input id="volume" type="range" min="0" max="100" value="80" step="1"></label>
+        </div>
+        <button id="panelStartBtn" class="btn-primary" disabled>Loading…</button>
+        <button id="panelStopBtn" class="menu-secondary" hidden>Stop and change settings</button>
+        <p id="engineStatus" class="engine-status" role="status">Loading engine…</p>
+        <div class="mission-facts"><span><strong>90</strong> SECONDS</span><span><strong>3</strong> WAVES</span><span><strong>5</strong> MISSILES</span></div>
+        <div class="session-best">SESSION BEST <span id="sessionBest">0</span></div>
+      </div>
+      <div class="location-tag" aria-hidden="true"><span>THE COAST</span><strong>HOLD YOUR GROUND.</strong><i></i> AIRCRAFT INBOUND · ALL SECTORS</div>
+    </section>
+    <footer class="quick-keys"><span><kbd>MOUSE</kbd> AIM</span><span><kbd>LMB / SPACE</kbd> FIRE</span><span><kbd>RMB / M</kbd> MISSILE</span><span><kbd>SHIFT</kbd> ZOOM</span><span><kbd>P / ESC</kbd> PAUSE</span></footer>
+    <dialog id="helpModal" aria-labelledby="helpTitle">
+      <div class="help-modal-header"><div><span class="eyebrow">FIELD GUIDE</span><h2 id="helpTitle">How to play</h2></div><button class="help-close" aria-label="Close help">Close ×</button></div>
+      <div class="help-modal-body">
+        <div class="help-section"><h3>Quick Start</h3><div class="param-help">Choose a difficulty, then click <strong>Deploy</strong>. Move the mouse to aim and hold the left button or Space to fire. Planes spawn far out at different altitudes on left, center, and right approaches. They follow varied crossing, sweeping, weaving, and rising paths, fire fast tracer bursts toward you, then bank away. Watch for sustained wing muzzle flashes, short tracer streaks, FIRING markers, and nearby impact sparks. Shoot them down before they attack. Touch players can drag a finger inside the arena to aim and fire.</div></div>
+        <div class="help-section"><h3>Controls</h3><div class="param-help"><strong>Stop:</strong> End the current round and unlock Difficulty. Change settings, then click Deploy. From the pause screen, choose Stop and change settings; this also exits fullscreen.<br><strong>Shift:</strong> Hold to zoom.<br><strong>P / Esc:</strong> Pause or resume.<br><strong>R:</strong> Restart the round.<br><strong>Sound:</strong> Toggle game audio.<br><strong>Fullscreen:</strong> Expand the game. Controls also work in fullscreen.<br>Changing tabs or moving focus out of the window pauses the round.</div></div>
+        <div class="help-section"><h3>Health</h3><div class="param-help">You start with 100 health. Incoming tracer rounds deal damage when they reach you. After three seconds without damage, health regenerates at nine points per second, up to 100. The health panel shows incoming fire and recovery. Survive until the 90-second timer runs out; losing all health ends the round immediately. Pausing also freezes attacks, health recovery, and missile reloads.</div></div>
+        <div class="help-section"><h3>Missiles and Flares</h3><div class="param-help">Aim near a plane until the missile panel shows <strong>LOCK</strong>. Right-click, press <strong>M</strong>, or tap <strong>Fire missile</strong> to launch. A missile destroys a plane with one hit. The magazine holds five missiles, which can be fired back-to-back. One missile replenishes every three seconds until the magazine is full. Missiles remain in flight until they strike a plane, flare, ground, or water, or travel more than 4 km from you. Firing without a lock sends it straight ahead.<br><br>Missiles turn gradually, so a weaving plane can evade them. Planes sometimes release glowing decoy flares that draw an approaching missile away. Higher difficulties use flares more often.</div></div>
+        <div class="help-section"><h3>Heat and Scoring</h3><div class="param-help">The rotary gun takes a moment to spin up. Sustained fire heats its barrels; overheating temporarily prevents firing until it cools. Release the trigger between bursts.<br><br>Planes take two or three gun hits. A green ring indicates one hit remaining. Destroy planes within five seconds of one another to build a multiplier up to ×5. Letting a plane escape breaks the streak. A round lasts 90 seconds, with more activity in each of its three waves. Gun hit percentage counts rounds only; missiles are separate.</div></div>
+        <div class="help-section"><h3>Simulation and Effects</h3><div class="param-help">Gun rounds use the projectile gravity and drag engine in still air. Aircraft follow smooth curved routes and bank into their turns. Distant firing and explosion sounds are delayed by travel distance. Explosions produce expanding fireballs, drifting smoke, and falling debris. Aircraft, missile steering, flares, health, and heat use fictional arcade rules. Scores stay in memory for the current visit.</div></div>
+      </div>
+
+    </dialog>
+    <noscript><div class="no-script">JavaScript is required to play AAAGunner.</div></noscript>
+  </main>
+</body>
+</html>
