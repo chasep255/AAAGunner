@@ -89,9 +89,13 @@ function predictedPosition(target, time)
   return position;
 }
 
-export function gunAimPoint(target, table, range)
+export function gunAimPoint(target, table, range, origin = {
+  x: 0,
+  y: 8,
+  z: 0
+})
 {
-  const distance = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
+  const distance = Math.hypot(target.position.x - origin.x, target.position.y - origin.y, target.position.z - origin.z);
   if (distance > range || distance < 20) return null;
   let flight = flightAt(table, distance),
     point;
@@ -99,7 +103,7 @@ export function gunAimPoint(target, table, range)
   for (let i = 0; i < 6; i++)
   {
     point = predictedPosition(target, flight.time);
-    const reach = Math.hypot(point.x, point.y - 8, point.z);
+    const reach = Math.hypot(point.x - origin.x, point.y - origin.y, point.z - origin.z);
     if (reach > range) return null;
     flight = flightAt(table, reach);
     if (!flight) return null;

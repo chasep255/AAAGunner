@@ -4,6 +4,9 @@ export function synthesizeSound(kind, sampleRate = 44100)
 {
   const duration = {
     gun: .18,
+    maxim: .28,
+    whistle: 2,
+    reload: .65,
     enemy: 1.15,
     impact: 1.15,
     explosion: 3.2,
@@ -25,7 +28,7 @@ export function synthesizeSound(kind, sampleRate = 44100)
     low += .018 * (noise - low);
     mid += .19 * (noise - mid);
     let value = 0;
-    if (kind === 'gun' || kind === 'enemy')
+    if (kind === 'gun' || kind === 'enemy' || kind === 'maxim')
     {
       const shot = kind === 'enemy' ? t % .075 : t;
       const gate = kind === 'enemy' && t > .85 ? Math.exp(-(t - .85) * 16) : 1;
@@ -45,6 +48,9 @@ export function synthesizeSound(kind, sampleRate = 44100)
       const pulse = t % .28;
       value = Math.sin(2 * Math.PI * (pulse < .12 ? 1050 : 700) * t) * Math.min(1, pulse * 180) * Math.exp(-pulse * 13) * .5;
     }
+    if (kind === 'maxim') value += Math.sin(2 * Math.PI * 82 * t) * Math.exp(-t * 23) * .5 + mid * Math.exp(-Math.max(0, t - .065) * 40) * .25;
+    if (kind === 'whistle') value = (Math.sin(2 * Math.PI * (1550 * t - 250 * t * t)) * .16 + mid * .3) * Math.sin(Math.PI * t / 2);
+    if (kind === 'reload') value = (noise - mid) * (Math.exp(-t * 65) + Math.exp(-Math.abs(t - .32) * 100) * .65) * .5;
     if (kind === 'missile') value = (mid * 2.2 + low * 2.2) * Math.min(1, t * 90) * Math.exp(-t * 2.7) + Math.sin(2 * Math.PI * 58 * t) * Math.exp(-t * 13) * .5;
     if (kind === 'hit') value = (noise - mid) * Math.exp(-t * 55) * .75 + Math.sin(2 * Math.PI * 1700 * t) * Math.exp(-t * 35) * .14;
     if (kind === 'motor') value = (Math.sin(2 * Math.PI * 70 * t) + .45 * Math.sin(2 * Math.PI * 140 * t) + .18 * Math.sin(2 * Math.PI * 350 * t)) * .27;
@@ -104,7 +110,7 @@ export class GameAudio
         this.echoLevel.gain.value = .16;
         this.reverb.connect(this.echoLevel).connect(this.compressor);
         this.bank = {};
-        for (const kind of ['gun', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine', 'bombAlert'])
+        for (const kind of ['gun', 'maxim', 'whistle', 'reload', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine', 'bombAlert'])
         {
           const data = synthesizeSound(kind, this.context.sampleRate);
           const buffer = this.context.createBuffer(1, data.length, this.context.sampleRate);
@@ -177,6 +183,11 @@ export class GameAudio
       this.play('bombAlert', null, .55);
       return;
     }
+    if (kind === 'maxim' || kind === 'reload' || kind === 'whistle')
+    {
+      this.play(kind, position, kind === 'whistle' ? .22 : kind === 'reload' ? .4 : .58);
+      return;
+    }
     if (kind === 'gun')
     {
       this.play('gun', null, .48);
@@ -200,10 +211,10 @@ export class GameAudio
     const distance = position ? Math.hypot(position.x, position.y - 8, position.z) : 0;
     this.pending.push(
     {
-      kind: kind === 'shellImpact' ? 'explosion' : kind === 'distantImpact' ? 'impact' : kind,
+      kind: kind === 'ally' ? 'maxim' : kind === 'shellImpact' ? 'explosion' : kind === 'distantImpact' ? 'impact' : kind,
       position,
       time: time + distance / 343,
-      gain: kind === 'shellImpact' ? .65 / (1 + distance / 450) : kind === 'distantImpact' ? .85 / (1 + distance / 200) : kind === 'explosion' ? 1.1 / (1 + distance / 650) : .5 / (1 + distance / 450)
+      gain: kind === 'ally' ? .3 : kind === 'shellImpact' ? .65 / (1 + distance / 450) : kind === 'distantImpact' ? .85 / (1 + distance / 200) : kind === 'explosion' ? 1.1 / (1 + distance / 650) : .5 / (1 + distance / 450)
     });
   }
   update(spool, game = null)
@@ -212,7 +223,7 @@ export class GameAudio
     this.applyVolume();
     if (!this.context) return;
     const now = this.context.currentTime;
-    this.motor.gain.gain.setTargetAtTime(this.active ? spool * .13 : 0, now, .04);
+    this.motor.gain.gain.setTargetAtTime(this.active && game?.audioProfile !== 'trench' ? spool * .13 : 0, now, .04);
     this.motor.source.playbackRate.setTargetAtTime(.7 + spool * .6, now, .05);
     let nearest = null,
       range = Infinity;
@@ -226,7 +237,7 @@ export class GameAudio
           nearest = target;
         }
       }
-    this.engine.gain.gain.setTargetAtTime(nearest ? .18 / (1 + range / 180) : 0, now, .15);
+    this.engine.gain.gain.setTargetAtTime(nearest && game?.audioProfile !== 'trench' ? .18 / (1 + range / 180) : 0, now, .15);
     if (nearest)
     {
       this.engine.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, nearest.position.x / Math.max(50, Math.abs(nearest.position.z)))), now, .15);

@@ -1,6 +1,10 @@
 # AAAGunner
 
-A browser arcade game: defend a coastal gun emplacement through three waves of attacking aircraft. Mouse aiming, quad 20 mm guns, homing missiles, regenerating health, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
+A browser defense game with two modes: **Coast**, with quad 20 mm cannons against aircraft, and **Trench**, with a water-cooled Maxim against charging infantry. Both have mouse aiming, three escalating waves over five minutes, three difficulties, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
+
+Choose **Mode** before deploying. Pause and use **Stop and change settings** to switch modes. The modes share the projectile engine, effects, audio, menus, and controls while keeping their combat rules and scenes separate.
+
+## Coast
 
 Aircraft approach from 2.5–4 km out on curved routes, bank into turns with limited roll and pitch rates, line up for forward gun passes, evade, and release decoy flares. They slow into banked turns and circle back through the visible arena instead of flying behind you. Flight lanes fit the current viewport. Aircraft must stay clearly inside the current viewport with an unobstructed line of sight for 1.5 seconds before firing. The whole plane must fit inside a margin that keeps attacks away from the screen edges and HUD. Visibility is checked for every queued round, including after a resize. Leaving view or moving behind terrain resets the reaction time and stops further shots. On gun passes, aircraft raise their noses to allow for projectile drop. Rounds still leave the fixed forward barrels, follow gravity, and can miss the emplacement. The camera keeps a fixed field of view. Gunfire and distant explosions arrive after their sound travel time. Heat-seeking missiles can lock approaching aircraft head-on as well as from behind. They accelerate to cruise speed, lead moving targets, and turn within an angular and lateral-acceleration limit. Losing a target outside the seeker cone ends tracking. Exhaust leaves a fading smoke trail in world space. Missiles have a five-round magazine; one replenishes every three seconds. They remain in flight until a collision or the 4 km range boundary. Each round lasts five minutes, split into three 100-second waves, with three difficulties and score streaks up to ×5.
 
@@ -16,18 +20,31 @@ Close passes can release a fictional glide bomb, with an audible warning, a mark
 
 The emplacement has 75 health (shown as 100% when full). Recovery starts after five seconds without a hit and restores four health per second. New damage restarts that delay, and pausing freezes recovery.
 
+## Trench
+
+Defend a WWI-style trench across a scarred, muddy battlefield, with sandbags, barbed wire, shell holes, dead trees, and charging infantry. Initial attackers start 170–265 metres out; later groups arrive 210–305 metres away. They converge on the trench while weaving and slow down near shell explosions. Each of the three waves increases the pressure.
+
+The Maxim has a visible water jacket, hose, feed belt, and individual muzzle flash and recoil. It fires ten rounds per second from a **250-round belt**. Press **R**, right-click, or tap **Reload belt** to reload in **3.5 seconds**; an empty belt reloads automatically. The water jacket heats gradually during sustained fire and cools when you release the trigger. Overheating stops firing until it cools. The optional aim-ahead ring accounts for movement and bullet drop.
+
+Two friendly gunners fire bursts that can stop attackers. They support your defense but cannot hold the line alone. Artillery arcs into no man’s land with descending whistles, blasts, smoke, and debris; explosions stop nearby infantry and briefly suppress others. Bullet hits produce blood sprays, wounds, and falling bodies. Artillery adds dismemberment and flying fragments. Blood stains linger in the mud. Effect pools are bounded and clear on restart or mode changes.
+
+You lose when attackers **overrun the trench**: eight breaches on Relaxed, five on Arcade, or three on Frenzy. LINE shows the remaining breach allowance; it does not regenerate. Artillery does not subtract from that allowance. Hold until the five-minute timer expires to win. Player stops earn 25 points with streaks up to ×5; friendly and artillery stops do not add to your score. Each mode keeps its own session best.
+
+This is an arcade representation. The Maxim profile uses fictional tuning (740 m/s, G1 BC 0.48, 11.3 g, 7.92 mm), with gravity and drag from the shared WASM engine and a 450-metre projectile boundary. These values are not presented as verified historical specifications.
+
 ## Controls
 
 | Action | Control |
 | --- | --- |
 | Aim | Mouse movement |
 | Fire gun | Hold left mouse or Space |
-| Fire missile | Right mouse or M |
+| Fire missile (Coast) | Right mouse or M |
+| Reload belt (Trench) | Right mouse or R |
 | Pause / resume | P or Escape |
-| Restart | R |
-| Change difficulty | Pause, then Stop and change settings |
+| Restart | Restart button; R in Coast |
+| Change mode or difficulty | Pause, then Stop and change settings |
 
-Touch players can drag to aim and fire, and use the on-screen missile button. Volume and the aim-ahead indicator remain adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit.
+Touch players can drag to aim and fire, and use the on-screen missile or reload button. Volume and the aim-ahead indicator remain adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit, separately for each mode.
 
 ## Run locally
 
@@ -42,6 +59,8 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 ## Project layout
 
 - `web/src/main.js`: input, menus, HUD, and the fixed-step game loop.
+- `web/src/modes.js`: mode registry and mode-specific presentation and setup.
+- `web/src/trench/`: infantry assaults, Maxim, artillery, trench scenery, and blood effects.
 - `web/src/gun-sight.js`: aim-ahead cue using the game’s projectile flight model.
 - `web/src/game.js`: aircraft paths, weapons, health, scoring, and collision detection.
 - `web/src/graphics/`: Three.js scenery, aircraft models, and effects.
@@ -59,4 +78,4 @@ The repository uses GitHub Pages with **GitHub Actions** as its publishing sourc
 
 ## Credits
 
-Code is MIT licensed; see [LICENSE](LICENSE). Aircraft, scenery, and sounds are generated by the game. Included texture and library credits are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Equipment and gameplay are fictional arcade designs.
+Code is MIT licensed; see [LICENSE](LICENSE). Aircraft, infantry, weapons, scenery, effects, and sounds are generated by the game. Included texture and library credits are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Equipment and gameplay are fictional arcade designs.

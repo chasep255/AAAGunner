@@ -1,5 +1,10 @@
 import
 {
+  MODES
+}
+from './modes.js';
+import
+{
   GUN_AMMO
 }
 from './game.js';
@@ -9,6 +14,7 @@ import
 }
 from './audio.js';
 const ui = Object.fromEntries([
+  'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
   'bombWarning', 'bombTime', 'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
   'heatWarning', 'gunStatus', 'heatPercent', 'heatMeter', 'heatFill', 'downed',
@@ -32,6 +38,12 @@ let aimX = 0,
   hitUntil = 0,
   damageUntil = 0,
   panelMode = 'ready';
+let modeKey = new URL(location.href).searchParams.get('mode') || 'coast';
+if (!Object.hasOwn(MODES, modeKey)) modeKey = 'coast';
+let modeSpec = MODES[modeKey],
+  loadedPhysics, switching = false;
+ui.modeSelect.value = modeKey;
+const bests = {};
 let best = 0,
   disposed = false;
 const audio = new GameAudio();
@@ -70,10 +82,18 @@ function showPanel(mode)
   ui.heatWarning.hidden = true;
   ui.bombWarning.hidden = true;
   ui.difficulty.disabled = mode === 'paused';
-  if (mode === 'paused')
+  ui.modeSelect.disabled = mode === 'paused';
+  if (mode === 'ready')
+  {
+    ui.restartBtn.disabled = true;
+    ui.panelTitle.innerHTML = 'AAA<span>GUNNER</span>';
+    ui.panelDescription.textContent = modeSpec.description;
+    setStartLabel('Deploy');
+  }
+  else if (mode === 'paused')
   {
     ui.panelTitle.textContent = 'Paused';
-    ui.panelDescription.textContent = 'The round, incoming fire, health recovery, and missile reload are paused.';
+    ui.panelDescription.textContent = 'The round and all combat, cooling, and reloads are paused.';
     setStartLabel('Resume');
   }
   else if (mode === 'stopped')
@@ -86,15 +106,15 @@ function showPanel(mode)
   else if (mode === 'ended')
   {
     best = Math.max(best, game.score);
+    bests[modeKey] = best;
     ui.sessionBest.textContent = best.toLocaleString();
-    ui.panelTitle.textContent = game.endReason === 'defeated' ? 'Defeated' : 'Survived!';
-    ui.panelDescription.textContent = game.endReason === 'defeated' ?
-      `You held out for ${Math.floor(game.time)} seconds. Shoot down incoming planes to give your health time to recover.` :
-      `All three waves survived with ${Math.ceil(game.healthPercent)}% health remaining. Choose your settings and start another round.`;
+    const survived = game.endReason === 'survived';
+    ui.panelTitle.textContent = survived ? 'Survived!' : modeSpec.defeatTitle;
+    ui.panelDescription.textContent = survived ? modeSpec.success(game) : modeSpec.defeat(game);
     ui.roundSummary.replaceChildren();
     for (const [value, label] of [
         [game.score.toLocaleString(), 'Score'],
-        [game.destroyed, 'Planes'],
+        [game.destroyed, modeSpec.stat],
         [`${game.accuracy}%`, 'Gun hit percentage'],
         [`×${game.bestCombo}`, 'Best streak']
       ])
@@ -106,6 +126,81 @@ function showPanel(mode)
       ui.roundSummary.append(item);
     }
     setStartLabel('Deploy');
+  }
+}
+
+function configureMode()
+{
+  ui.arena.dataset.mode = modeKey;
+  document.getElementById('modeEyebrow').textContent = modeKey === 'trench' ? 'TRENCH DEFENSE' : 'COASTAL DEFENSE';
+  ui.weaponLabel.textContent = modeSpec.weapon;
+  ui.gunAmmo.textContent = modeSpec.ammo;
+  ui.gunGuide.textContent = `${ui.leadAssist.checked ? 'AIM AT GOLD RING' : 'GUN RANGE'} · ${modeSpec.range}`;
+  ui.healthLabel.textContent = modeSpec.healthLabel;
+  ui.secondaryLabel.textContent = modeSpec.secondaryLabel;
+  ui.missileBtn.textContent = modeSpec.action;
+  ui.missileBtn.title = modeSpec.actionHint;
+  ui.heatLabel.textContent = modeSpec.heatLabel;
+  ui.heatMeter.setAttribute('aria-label', modeSpec.heatLabel.toLowerCase());
+  ui.targetLabel.textContent = modeSpec.stat;
+  const [number, ...label] = modeSpec.fact.split(' ');
+  ui.modeFact.innerHTML = `<strong>${number}</strong> ${label.join(' ')}`;
+  ui.modeLocation.textContent = modeSpec.location;
+  ui.modeThreat.textContent = modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS';
+  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / R</kbd> RELOAD' : '<kbd>RMB / M</kbd> MISSILE';
+  ui.coastHelp.hidden = modeKey !== 'coast';
+  ui.trenchHelp.hidden = modeKey !== 'trench';
+  ui.healthMeter.setAttribute('aria-label', modeKey === 'trench' ? 'Trench line strength' : 'Player health');
+  ui.skyCanvas.setAttribute('aria-label', `Move the mouse to aim. Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
+  ui.heatWarning.firstChild.textContent = modeKey === 'trench' ? 'WATER JACKET HOT ' : 'BARRELS HOT ';
+  ui.heatWarning.querySelector('span').textContent = modeKey === 'trench' ? 'Let it cool' : 'Let them cool';
+  ui.bombWarning.querySelector('strong').textContent = modeKey === 'trench' ? 'LINE IN DANGER' : 'BOMB INBOUND';
+  best = bests[modeKey] || 0;
+  ui.sessionBest.textContent = best.toLocaleString();
+}
+
+async function selectMode(key)
+{
+  if (switching || !Object.hasOwn(MODES, key)) return;
+  switching = true;
+  clearInput();
+  audio.clear();
+  audio.update(0);
+  ui.modeSelect.disabled = true;
+  ui.difficulty.disabled = true;
+  setStartLabel('Loading…', true);
+  ui.engineStatus.textContent = 'LOADING MODE';
+  try
+  {
+    game?.dispose();
+    view?.dispose();
+    game = null;
+    view = null;
+    modeKey = key;
+    modeSpec = MODES[key];
+    const selected = await modeSpec.create(loadedPhysics, ui.skyCanvas);
+    game = selected.game;
+    view = selected.view;
+    accumulator = 0;
+    lastFrame = performance.now();
+    aimX = aimY = 0;
+    ui.modeSelect.value = key;
+    configureMode();
+    positionReticle();
+    showPanel('ready');
+    updateHud();
+    const url = new URL(location.href);
+    url.searchParams.set('mode', key);
+    history.replaceState(null, '', url);
+    ui.engineStatus.textContent = 'SYSTEMS READY';
+  }
+  catch (error)
+  {
+    fail(error);
+  }
+  finally
+  {
+    switching = false;
   }
 }
 
@@ -161,6 +256,7 @@ function beginRound(resume = false)
     ui.gamePanel.hidden = true;
     ui.arena.classList.remove('panel-open');
     ui.difficulty.disabled = true;
+    ui.modeSelect.disabled = true;
     ui.restartBtn.disabled = false;
     setStartLabel('Deploy', true);
     ui.reticle.hidden = false;
@@ -202,11 +298,11 @@ function fail(error)
   ui.missileBtn.disabled = true;
 }
 
-function launchMissile()
+function secondaryAction()
 {
   if (game?.state !== 'playing' || !view) return;
   const direction = view.directionAt(aimX, aimY);
-  game.fireMissile(direction);
+  modeSpec.secondary(game, direction);
   updateHud();
 }
 
@@ -259,6 +355,7 @@ function updateHud()
     const marker = document.createElement('span');
     marker.textContent = position.label || 'FIRING';
     if (position.bomb) marker.classList.add('bomb-marker');
+    if (position.allied) marker.classList.add('ally-marker');
     marker.style.left = `${position.x}%`;
     marker.style.top = `${position.y}%`;
     return marker;
@@ -272,7 +369,7 @@ function updateHud()
     ui.gunLead.style.top = `${sight.y}%`;
     ui.gunLeadLabel.textContent = `AIM HERE · ${Math.round(sight.distance / 10) * 10} m`;
   }
-  const locked = game.state === 'playing' && Boolean(game.missileTarget(direction));
+  const locked = game.state === 'playing' && modeKey === 'coast' && Boolean(game.missileTarget(direction));
   const empty = game.missileAmmo === 0;
   ui.missileStatus.textContent = `${game.missileAmmo}/5 · ${empty ? 'EMPTY' : locked ? 'LOCK' : 'READY'}`;
   ui.missileReload.textContent = game.missileCooldown > 0 ? `+1 in ${game.missileCooldown.toFixed(1)}s` : 'MAGAZINE FULL';
@@ -281,7 +378,20 @@ function updateHud()
   ui.missileBtn.disabled = game.state !== 'playing' || empty;
   ui.gunStatus.textContent = game.overheated ? 'COOLING DOWN' : game.spool > 0.2 ? 'FIRING' : 'READY';
   driveBars.forEach((bar, i) => bar.classList.toggle('active', game.spool > i / 8));
-
+  if (modeKey === 'trench')
+  {
+    ui.healthValue.textContent = `${game.tuning.breaches - game.breaches}/${game.tuning.breaches}`;
+    const distance = game.nearestDistance;
+    ui.healthStatus.textContent = distance === null ? 'LINE CLEAR' : `NEAREST ${Math.ceil(distance)} M · ${game.breaches} BREACHES`;
+    ui.healthStatus.parentElement.classList.toggle('incoming', distance !== null && distance < 40);
+    ui.healthStatus.parentElement.classList.remove('recovering');
+    ui.bombWarning.hidden = game.state !== 'playing' || distance === null || distance >= 40;
+    ui.bombTime.textContent = `STOP THE CHARGE · ${Math.ceil(distance || 0)} M`;
+    ui.missileStatus.textContent = `${game.belt}/250 · ${game.reloadRemaining ? 'RELOADING' : 'READY'}`;
+    ui.missileReload.textContent = game.reloadRemaining ? `READY IN ${game.reloadRemaining.toFixed(1)}s` : '250-ROUND BELT';
+    ui.missileBtn.disabled = game.state !== 'playing' || Boolean(game.reloadRemaining) || game.belt === 250;
+    ui.gunStatus.textContent = game.reloadRemaining ? 'RELOADING' : game.overheated ? 'COOLING' : game.spool > .2 ? 'FIRING' : 'READY';
+  }
 }
 
 for (const button of [ui.panelStartBtn]) button.addEventListener('click', () =>
@@ -293,10 +403,11 @@ for (const button of [ui.panelStartBtn]) button.addEventListener('click', () =>
   }
   beginRound(panelMode === 'paused');
 });
+ui.modeSelect.addEventListener('change', () => selectMode(ui.modeSelect.value));
 ui.restartBtn.addEventListener('click', () => beginRound());
 ui.missileBtn.addEventListener('click', () =>
 {
-  launchMissile();
+  secondaryAction();
   ui.skyCanvas.focus(
   {
     preventScroll: true
@@ -305,7 +416,7 @@ ui.missileBtn.addEventListener('click', () =>
 ui.pauseBtn.addEventListener('click', pause);
 ui.leadAssist.addEventListener('change', () =>
 {
-  ui.gunGuide.textContent = ui.leadAssist.checked ? 'AIM AT GOLD RING · 2 KM' : 'GUN RANGE · 2 KM';
+  ui.gunGuide.textContent = `${ui.leadAssist.checked ? 'AIM AT GOLD RING' : 'GUN RANGE'} · ${modeSpec.range}`;
   if (game && view) updateHud();
 });
 
@@ -388,7 +499,7 @@ ui.skyCanvas.addEventListener('contextmenu', event =>
 {
   event.preventDefault();
   moveAim(event);
-  launchMissile();
+  secondaryAction();
 });
 window.addEventListener('keydown', event =>
 {
@@ -404,9 +515,9 @@ window.addEventListener('keydown', event =>
     event.preventDefault();
   }
   if (event.repeat) return;
-  if (event.code === 'KeyM')
+  if (event.code === 'KeyM' && modeKey === 'coast')
   {
-    launchMissile();
+    secondaryAction();
     event.preventDefault();
   }
   if (event.code === 'KeyP' || event.code === 'Escape')
@@ -415,7 +526,12 @@ window.addEventListener('keydown', event =>
     else if (game.state === 'paused') beginRound(true);
     event.preventDefault();
   }
-  if (event.code === 'KeyR' && game.state !== 'ready') beginRound();
+  if (event.code === 'KeyR' && modeKey === 'trench')
+  {
+    secondaryAction();
+    event.preventDefault();
+  }
+  else if (event.code === 'KeyR' && game.state !== 'ready') beginRound();
 });
 window.addEventListener('keyup', event =>
 {
@@ -437,28 +553,24 @@ try
 {
   const [
   {
-    ArenaView
-  },
-  {
-    ArcadeGame,
-    STEP
-  },
-  {
     loadPhysics
-  }] = await Promise.all([
-    import('./graphics/scene.js'), import('./game.js'), import('./physics.js')
-  ]);
-  const physics = await loadPhysics();
-  view = new ArenaView(ui.skyCanvas);
-  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target), distance => view.flightHalfWidth(distance), (barrel, direction) => view.muzzlePosition(barrel, direction));
-  ui.engineStatus.textContent = 'SYSTEMS READY';
-  setStartLabel('Deploy');
-  ui.reticle.hidden = true;
-  const resizeObserver = new ResizeObserver(() => view.resize());
+  },
+  {
+    STEP
+  }] = await Promise.all([import('./physics.js'), import('./game.js')]);
+  loadedPhysics = await loadPhysics();
+  await selectMode(modeKey);
+  const resizeObserver = new ResizeObserver(() => view?.resize());
   resizeObserver.observe(ui.arena);
   const tick = timestamp =>
   {
     if (disposed) return;
+    if (switching || !game || !view)
+    {
+      lastFrame = timestamp;
+      frameId = requestAnimationFrame(tick);
+      return;
+    }
     try
     {
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
@@ -479,7 +591,7 @@ try
         if (event.type === 'shot')
         {
           view.gunShot(event.barrel);
-          audio.event('gun', null, game.time);
+          audio.event(modeSpec.gunSound, null, game.time);
         }
         if (event.type === 'shellImpact')
         {
@@ -493,10 +605,10 @@ try
         }
         if (event.type === 'destroyed')
         {
-          view.burst(event.position, true, event.velocity);
+          if (event.kind !== 'infantry') view.burst(event.position, true, event.velocity);
           ui.toast.textContent = `+${event.points}  TARGET DOWN`;
           toastUntil = timestamp + 1400;
-          audio.event('explosion', event.position, game.time);
+          if (event.kind !== 'infantry') audio.event('explosion', event.position, game.time);
         }
         if (event.type === 'incoming')
         {
@@ -555,6 +667,33 @@ try
           ui.toast.textContent = 'MISSILE DECOYED';
           toastUntil = timestamp + 1100;
         }
+        if (event.type === 'blood') view.blood.burst(event.position, event.source, event.velocity);
+        if (event.type === 'groundHit') view.dust(event.position);
+        if (event.type === 'allyShot') audio.event('ally', event.position, game.time);
+        if (event.type === 'artilleryLaunch') audio.event('whistle', event.position, game.time);
+        if (event.type === 'artilleryImpact')
+        {
+          view.burst(event.position, true);
+          audio.event('explosion', event.position, game.time);
+        }
+        if (event.type === 'reload')
+        {
+          ui.toast.textContent = 'RELOADING BELT';
+          toastUntil = timestamp + 1200;
+          audio.event('reload', null, game.time);
+        }
+        if (event.type === 'reloaded')
+        {
+          ui.toast.textContent = 'BELT READY';
+          toastUntil = timestamp + 900;
+        }
+        if (event.type === 'breach')
+        {
+          damageUntil = timestamp + 500;
+          ui.toast.textContent = 'THE LINE IS BEING OVERRUN';
+          toastUntil = timestamp + 1800;
+          audio.event('bombAlert', null, game.time);
+        }
         if (event.type === 'ended')
         {
           clearInput();
@@ -588,8 +727,8 @@ try
     disposed = true;
     cancelAnimationFrame(frameId);
     resizeObserver.disconnect();
-    game.dispose();
-    view.dispose();
+    game?.dispose();
+    view?.dispose();
     audio.dispose();
   });
 }

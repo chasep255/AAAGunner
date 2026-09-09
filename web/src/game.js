@@ -263,18 +263,26 @@ function surfaceContact(a, b)
   return null;
 }
 
-class ProjectilePool
+export class ProjectilePool
 {
-  constructor(physics)
+  constructor(physics,
+  {
+    ammo = GUN_AMMO,
+    speed = GUN_SPEED,
+    range = GUN_RANGE,
+    lifetime = GUN_LIFETIME
+  } = {})
   {
     this.physics = physics;
+    this.speed = speed;
+    this.range = range;
     this.slots = [];
     // Length is unused with spin disabled; no unpublished dimension is assumed.
-    this.base = new physics.Bullet(GUN_AMMO.mass, GUN_AMMO.diameter, 0, GUN_AMMO.bc, physics.DragFunction.G1);
+    this.base = new physics.Bullet(ammo.mass, ammo.diameter, 0, ammo.bc, physics.DragFunction.G1);
     this.atmosphere = new physics.Atmosphere();
     this.launchPosition = new physics.Vector3D(0, 8, 0);
     this.launchVelocity = new physics.Vector3D(0, 0, 0);
-    this.flightTable = buildGunFlightTable(physics, this.base, this.atmosphere, GUN_SPEED, GUN_RANGE, GUN_LIFETIME);
+    this.flightTable = buildGunFlightTable(physics, this.base, this.atmosphere, speed, range, lifetime);
   }
 
   fire(direction, origin = PLAYER_POSITION, barrel = 0)
@@ -297,8 +305,8 @@ class ProjectilePool
       };
       this.slots.push(projectile);
     }
-    // Published muzzle velocity feeds the same gravity and G1 drag integration.
-    const speed = GUN_SPEED;
+    // The weapon profile feeds the same gravity and G1 drag integration.
+    const speed = this.speed;
     this.launchPosition.x = origin.x;
     this.launchPosition.y = origin.y;
     this.launchPosition.z = origin.z;
@@ -328,7 +336,7 @@ class ProjectilePool
     {
       if (!projectile.alive) continue;
       Object.assign(projectile.previous, projectile.position);
-      projectile.simulator.simulate(GUN_RANGE, dt, dt);
+      projectile.simulator.simulate(this.range, dt, dt);
       const state = projectile.simulator.getCurrentBullet();
       const position = state.getPosition();
       projectile.position.x = position.x;

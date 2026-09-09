@@ -202,3 +202,9 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
 .panel-open .bomb-warning { display: none; }
 
 .attack-indicators .bomb-marker::before { content: ''; position: absolute; left: calc(50% - 7px); bottom: -20px; width: 14px; height: 14px; border: 1px solid #ffbe79; border-radius: 50%; }
+
+.mode-option { grid-column: 1 / -1; }
+.arena[data-mode="trench"] { --accent: #d6b777; --green: #bbcc9d; }
+.attack-indicators .ally-marker { color: #c4e6d1; border-color: #80b59a; background: #163d35bd; font-size: 8px; }
+.attack-indicators .ally-marker::after { border-top-color: #80b59a; }
+#modeThreat { display: inline; color: inherit; font-size: inherit; }

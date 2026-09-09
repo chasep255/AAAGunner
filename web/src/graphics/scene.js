@@ -88,6 +88,11 @@ export class ArenaView
     this.resize();
   }
 
+  get supportsMissiles()
+  {
+    return true;
+  }
+
   mesh(geometry, material, parent, x = 0, y = 0, z = 0)
   {
     const mesh = new THREE.Mesh(geometry, material);
@@ -373,7 +378,7 @@ export class ArenaView
     this.missileSmoke = new MissileSmoke(this.scene, this.smokeTexture);
     this.missileModels = Array.from(
     {
-      length: MAX_MISSILES
+      length: this.supportsMissiles ? MAX_MISSILES : 0
     }, () =>
     {
       const model = buildMissile(this);
@@ -382,7 +387,7 @@ export class ArenaView
     });
     this.bombModels = Array.from(
     {
-      length: MAX_BOMBS
+      length: this.supportsMissiles ? MAX_BOMBS : 0
     }, () =>
     {
       const model = buildBomb(this);
@@ -508,11 +513,8 @@ export class ArenaView
     return this.aim.set(x, y, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
   }
 
-  render(game, direction, dt, reducedMotion)
+  updateTargets(game, dt, reducedMotion)
   {
-    this.clock += dt;
-    this.waterMaterial.uniforms.time.value = this.clock;
-    this.skyMaterial.uniforms.time.value = this.clock;
     for (const target of game.targets)
     {
       let model = this.targetModels.get(target.id);
@@ -539,6 +541,14 @@ export class ArenaView
       this.removeModel(model);
       this.targetModels.delete(id);
     }
+  }
+
+  render(game, direction, dt, reducedMotion)
+  {
+    this.clock += dt;
+    if (this.waterMaterial) this.waterMaterial.uniforms.time.value = this.clock;
+    if (this.skyMaterial?.uniforms?.time) this.skyMaterial.uniforms.time.value = this.clock;
+    this.updateTargets(game, dt, reducedMotion);
     let n = 0;
     for (const projectile of game.projectiles.slots)
     {
