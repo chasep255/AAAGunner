@@ -112,8 +112,8 @@ export function buildLandscape(view)
   };
   const terrain = new THREE.MeshStandardMaterial(
   {
-    map: tiled('./assets/textures/grass/Grass004_1K-JPG_Color.jpg', 55, true),
-    normalMap: tiled('./assets/textures/grass/Grass004_1K-JPG_NormalGL.jpg', 55),
+    map: tiled('../../assets/textures/grass/Grass004_1K-JPG_Color.jpg', 55, true),
+    normalMap: tiled('../../assets/textures/grass/Grass004_1K-JPG_NormalGL.jpg', 55),
     normalScale: new THREE.Vector2(.45, .45),
     color: 0x798071,
     roughness: 1,
@@ -140,8 +140,8 @@ export function buildLandscape(view)
   mesh(ground, terrain, scene, 0, -5, -1350);
   const concrete = new THREE.MeshStandardMaterial(
   {
-    map: tiled('./assets/textures/concrete/Concrete012_1K-JPG_Color.jpg', 4, true),
-    normalMap: tiled('./assets/textures/concrete/Concrete012_1K-JPG_NormalGL.jpg', 4),
+    map: tiled('../../assets/textures/concrete/Concrete012_1K-JPG_Color.jpg', 4, true),
+    normalMap: tiled('../../assets/textures/concrete/Concrete012_1K-JPG_NormalGL.jpg', 4),
     roughness: .95,
     color: 0x96958c
   });
