@@ -772,6 +772,12 @@ export class ArenaView
     materials.forEach(material => material.dispose());
     this.textures.forEach(texture => texture.dispose());
     this.targetModels.clear();
+    // The next mode reuses this canvas and its WebGL context. Three's reset
+    // leaves upload flags untouched, but its initial 3D textures require both off.
+    this.renderer.resetState();
+    const context = this.renderer.getContext();
+    context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
+    context.pixelStorei(context.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     this.renderer.dispose();
   }
 }

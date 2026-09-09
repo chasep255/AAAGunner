@@ -236,7 +236,7 @@ export class GameAudio
     let nearest = null,
       range = Infinity;
     if (this.active)
-      for (const target of (game.audioProfile === 'trench' ? game.biplanes : game.targets))
+      for (const target of ((game.audioProfile === 'trench' ? game.biplanes : game.targets) || []))
       {
         const distance = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
         if (distance < range)

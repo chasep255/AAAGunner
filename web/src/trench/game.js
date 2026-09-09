@@ -47,25 +47,25 @@ export const TRENCH_LEVELS = {
   relaxed:
   {
     speed: 3.5,
-    group: 5,
-    interval: 6.5,
-    count: 40,
+    group: 6,
+    interval: 6,
+    count: 48,
     breaches: 8
   },
   arcade:
   {
     speed: 4.2,
-    group: 7,
-    interval: 6,
-    count: 64,
+    group: 9,
+    interval: 5.3,
+    count: 76,
     breaches: 5
   },
   frenzy:
   {
     speed: 5.1,
-    group: 9,
-    interval: 5,
-    count: 80,
+    group: 12,
+    interval: 4.5,
+    count: 96,
     breaches: 3
   }
 };
@@ -221,12 +221,17 @@ export class TrenchGame
         lane: (this.random() - .5) * Math.min(9, this.halfWidth(20) * 1.3),
         phase: this.random() * Math.PI * 2,
         age: 0,
-        radius: .58,
+        radius: .44,
+        approachX: x,
+        cover: null,
+        coverRemaining: 0,
+        tacticClock: .5 + this.random() * 2.5,
+        dashRemaining: 0,
         health: 1,
         suppressed: 0,
         flash: 0,
         fireRemaining: 0,
-        fireCooldown: 3 + this.random() * 12,
+        fireCooldown: .7 + this.random() * 3,
         rifleClock: 0
       });
     }
@@ -385,6 +390,80 @@ export class TrenchGame
     if (this.belt === 0) this.reload();
     if (this.heat >= 1) this.overheated = true;
   }
+  advanceInfantry(dt)
+  {
+    for (const target of this.targets)
+    {
+      Object.assign(target.previous, target.position);
+      target.age += dt;
+      target.suppressed = Math.max(0, target.suppressed - dt);
+      target.dashRemaining = Math.max(0, target.dashRemaining - dt);
+      target.tacticClock -= dt;
+      if (target.coverRemaining > 0)
+      {
+        target.coverRemaining = Math.max(0, target.coverRemaining - dt);
+        if (!target.coverRemaining)
+        {
+          target.cover = null;
+          target.fireRemaining = 0;
+          target.dashRemaining = 2 + this.random();
+        }
+      }
+      if (!target.cover && target.tacticClock <= 0 && target.position.z < -35)
+      {
+        target.tacticClock = 5 + this.random() * 5;
+        // Move in bounds between shell holes instead of funneling into one lane.
+        const nearby = this.terrain.craters.filter(crater =>
+          crater.z > target.position.z + 3 && crater.z < target.position.z + 32 &&
+          Math.abs(crater.x - target.position.x) < 16 &&
+          Math.abs(crater.x) < this.halfWidth(-crater.z) * .72);
+        if (nearby.length && this.random() < .7)
+        {
+          const crater = nearby[Math.floor(this.random() * nearby.length)];
+          target.cover = {
+            x: crater.x,
+            z: crater.z + crater.radius * .55
+          };
+          target.fireRemaining = 0;
+        }
+        target.dashRemaining = 1.5 + this.random() * 1.8;
+      }
+      const held = target.coverRemaining > 0 || target.fireRemaining > 0;
+      const speed = held ? 0 : target.speed * (target.suppressed ? .65 : target.dashRemaining > 0 ? 1.35 : 1);
+      const approach = clamp((-target.position.z - 18) / 190, 0, 1);
+      const weave = Math.sin(target.age * .8 + target.phase) * Math.min(3.5, -target.position.z * .035);
+      const desiredX = target.cover ? target.cover.x : target.lane + (target.approachX - target.lane) * approach + weave;
+      const limit = Math.max(3, this.halfWidth(Math.max(6, -target.position.z)) * .78);
+      target.position.x += clamp(clamp(desiredX, -limit, limit) - target.position.x, -speed * .8 * dt, speed * .8 * dt);
+      target.position.z += target.cover ? clamp(target.cover.z - target.position.z, -speed * dt, speed * dt) : speed * dt;
+      if (target.cover && !held && Math.hypot(target.cover.x - target.position.x, target.cover.z - target.position.z) < 1.1)
+      {
+        target.coverRemaining = 2 + this.random() * 2.5;
+        target.fireCooldown = 0;
+      }
+      const crouched = target.fireRemaining > 0 || target.suppressed || target.coverRemaining > 0;
+      const center = target.coverRemaining > 0 && target.fireRemaining <= 0 ? .52 : crouched ? .75 : 1;
+      target.radius = center < .6 ? .28 : crouched ? .34 : .44;
+      const height = this.terrain.height(target.position.x, target.position.z) + center;
+      target.position.y += (height - target.position.y) * Math.min(1, dt * 10);
+      for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
+    }
+  }
+  groundContact(start, end)
+  {
+    const steps = Math.max(1, Math.ceil(Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z) / 1.5));
+    for (let i = 1; i <= steps; i++)
+    {
+      const fraction = i / steps;
+      const position = {};
+      for (const axis of ['x', 'y', 'z']) position[axis] = start[axis] + (end[axis] - start[axis]) * fraction;
+      if (position.y <= this.terrain.height(position.x, position.z)) return {
+        fraction,
+        position
+      };
+    }
+    return null;
+  }
   advanceAllies(dt)
   {
     for (const ally of this.allies)
@@ -458,8 +537,9 @@ export class TrenchGame
       shot.age += dt;
       for (const axis of ['x', 'y', 'z']) shot.position[axis] += shot.velocity[axis] * dt;
       shot.velocity.y -= 9.81 * dt;
+      const ground = this.groundContact(shot.previous, shot.position);
       let victim = null,
-        first = Infinity;
+        first = ground?.fraction ?? Infinity;
       for (const target of this.targets)
         if (shot.side !== 'enemy' && target.alive)
         {
@@ -503,7 +583,8 @@ export class TrenchGame
           y: origin.y - (this.ducking ? .78 : 0),
           z: origin.z
         };
-        if (shot.alive && sweptHit(shot.previous, shot.position, player, player, .34) !== null)
+        const playerHit = sweptHit(shot.previous, shot.position, player, player, .34);
+        if (shot.alive && playerHit !== null && playerHit < first)
         {
           this.crewHealth = Math.max(0, this.crewHealth - shot.damage);
           this.lastHit = this.time;
@@ -540,29 +621,29 @@ export class TrenchGame
           }
         }
       }
-      if (shot.age > 1.3 || shot.position.y < this.terrain.height(shot.position.x, shot.position.z)) shot.alive = false;
+      if (shot.age > 1.3 || ground) shot.alive = false;
     }
     this.enemyShots = this.enemyShots.filter(s => s.alive);
   }
   advanceRiflemen(dt)
   {
     let active = this.targets.filter(t => t.alive && t.fireRemaining > 0).length;
-    const limit = this.difficulty === 'relaxed' ? 2 : this.difficulty === 'frenzy' ? 4 : 3;
+    const limit = this.difficulty === 'relaxed' ? 3 : this.difficulty === 'frenzy' ? 7 : 5;
     for (const target of this.targets)
     {
       target.flash = Math.max(0, target.flash - dt);
       target.fireCooldown -= dt;
       const visible = Math.abs(target.position.x) < this.halfWidth(-target.position.z) * .76;
-      if (!target.alive || target.suppressed || !visible)
+      if (!target.alive || target.suppressed || !visible || target.cover && !target.coverRemaining)
       {
         target.fireRemaining = 0;
         continue;
       }
-      if (target.fireRemaining <= 0 && active < limit && target.fireCooldown <= 0 && target.position.z > -175 && target.position.z < -28)
+      if (target.fireRemaining <= 0 && active < limit && target.fireCooldown <= 0 && target.position.z > -245 && target.position.z < -22)
       {
-        target.fireRemaining = 3 + this.random() * 2;
+        target.fireRemaining = 3.5 + this.random() * 2.5;
         target.rifleClock = .6 + this.random() * .5;
-        target.fireCooldown = 10 + this.random() * 12;
+        target.fireCooldown = 6 + this.random() * 6;
         active++;
       }
       if (target.fireRemaining <= 0) continue;
@@ -576,9 +657,10 @@ export class TrenchGame
         z: target.position.z + .35
       };
       const distance = Math.hypot(origin.x - start.x, origin.z - start.z);
+      const spread = (this.difficulty === 'relaxed' ? 4 : this.difficulty === 'frenzy' ? 2.8 : 3.2) * clamp(distance / 160, .45, 1.6);
       const aim = {
-        x: origin.x + (this.random() - .5) * 3.8,
-        y: origin.y + (this.random() - .5) * 2.2,
+        x: origin.x + (this.random() - .5) * spread,
+        y: origin.y + (this.random() - .5) * spread * .58,
         z: origin.z
       };
       const velocity = {
@@ -637,8 +719,8 @@ export class TrenchGame
       const duration = 3.1 + this.random() * .8;
       const impact = target ?
       {
-        x: target.position.x + target.velocity.x * duration + (this.random() - .5) * 11,
-        z: Math.min(-45, target.position.z + target.velocity.z * duration + (this.random() - .5) * 12)
+        x: target.position.x + target.velocity.x * duration * .65 + (this.random() - .5) * 18,
+        z: Math.min(-45, target.position.z + target.velocity.z * duration * .65 + (this.random() - .5) * 20)
       } :
       {
         x: (this.random() - .5) * 90,
@@ -694,7 +776,7 @@ export class TrenchGame
       for (const target of this.targets)
       {
         const distance = Math.hypot(target.position.x - shell.impact.x, target.position.z - shell.impact.z);
-        if (distance < 7) this.stopTarget(target, 'artillery');
+        if (distance < (target.coverRemaining > 0 ? 3.5 : 7)) this.stopTarget(target, 'artillery');
         else if (distance < 20) target.suppressed = 2.2;
       }
     }
@@ -751,27 +833,15 @@ export class TrenchGame
       }
     }
     else this.shotClock = 0;
-    for (const target of this.targets)
-    {
-      Object.assign(target.previous, target.position);
-      target.age += dt;
-      target.suppressed = Math.max(0, target.suppressed - dt);
-      const speed = target.fireRemaining > 0 ? 0 : target.speed * (target.suppressed ? .45 : 1);
-      const desiredX = target.lane + Math.sin(target.age * 1.2 + target.phase) * Math.min(1.4, -target.position.z * .01);
-      target.position.x += clamp(desiredX - target.position.x, -speed * .65 * dt, speed * .65 * dt);
-      target.position.z += speed * dt;
-      const standingHeight = this.terrain.height(target.position.x, target.position.z) + (target.fireRemaining > 0 ? .75 : 1);
-      target.position.y += (standingHeight - target.position.y) * Math.min(1, dt * 10);
-      for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
-    }
+    this.advanceInfantry(dt);
     advanceBiplanes(this, dt);
     this.projectiles.advance(dt);
     for (const shot of this.projectiles.slots)
     {
       if (!shot.alive) continue;
+      const ground = this.groundContact(shot.previous, shot.position);
       let victim = null,
-        first = Infinity;
-      const ground = this.terrain.height(shot.position.x, shot.position.z);
+        first = ground?.fraction ?? Infinity;
       for (const target of [...this.targets, ...this.biplanes])
         if (target.alive)
         {
@@ -820,7 +890,7 @@ export class TrenchGame
           }
         });
       }
-      else if (shot.position.y <= ground)
+      else if (ground)
       {
         shot.alive = false;
         this.events.push(
@@ -828,9 +898,7 @@ export class TrenchGame
           type: 'groundHit',
           position:
           {
-            x: shot.position.x,
-            y: ground,
-            z: shot.position.z
+            ...ground.position
           }
         });
       }

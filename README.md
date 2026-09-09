@@ -24,11 +24,11 @@ The emplacement has 75 health (shown as 100% when full). Recovery starts after f
 
 Defend a connected, dug-out WWI-style trench. You and two allied Maxim crews stand on firing steps behind the same sandbagged parapet. Timber revetments, duckboards, traverses, ammunition crates, and spent cases surround the position. Soft shadows, textured soil and timber, concertina wire, dead vegetation, and shell holes give no man’s land its shape.
 
-Initial attackers start 170–265 metres out; later groups arrive 210–305 metres away. Some stop and crouch to fire rifles while others keep charging. Hits wound you and near misses cause suppression, increasing gun dispersion. **Hold C** or toggle **Take cover** to duck behind the parapet. You cannot fire while ducked, but cooling, reloading, and recovery continue. Low rounds hit the parapet; your exposed head can be hit while operating the gun. You have 75 health, displayed as 100%, and regain two health per second after seven seconds without damage. Zero health ends the round.
+Initial attackers start 170–265 metres out; later groups arrive 210–305 metres away. Larger assault groups stay spread out, dash between shell holes, and crouch in cover. More attackers lay down rifle fire from farther out, becoming more accurate as they close. Crater rims block rounds, and crouching reduces the exposed target. Hits wound you and near misses cause suppression, increasing gun dispersion. **Hold C** or toggle **Take cover** to duck behind the parapet. You cannot fire while ducked, but cooling, reloading, and recovery continue. Low rounds hit the parapet; your exposed head can be hit while operating the gun. You have 75 health, displayed as 100%, and regain two health per second after seven seconds without damage. Zero health ends the round.
 
 The Maxim has a water jacket, hose, feed belt, muzzle flash and recoil. It fires ten rounds per second from a **250-round belt**. Press **R**, right-click, or tap **Reload belt** to reload in **3.5 seconds**; an empty belt reloads automatically. Firing heats the water jacket; releasing the trigger cools it. Overheating stops firing until it cools. The optional aim-ahead ring accounts for movement and bullet drop.
 
-Friendly gunners support your defense from protected bays beside you. Friendly artillery launches from behind your line and targets groups of attackers, keeping impacts at least 45 metres forward of the position. Green impact markers and a support counter identify its fire. Blasts stop or suppress attackers and excavate persistent craters, with depressed bowls, raised rims, darkened soil, water, and scattered debris. The same terrain samples control rendering, infantry footing, blood effects, and bullet impacts. A new round restores the original battlefield.
+Friendly gunners support your defense from protected bays beside you. Friendly artillery launches from behind your line and targets groups of attackers, keeping impacts at least 45 metres forward of the position. A support counter tracks its fire; riflemen and artillery impacts have no floating labels. Blasts stop or suppress attackers and excavate persistent craters, with depressed bowls, raised rims, darkened soil, water, and scattered debris. The same terrain samples control rendering, infantry footing, blood effects, and bullet impacts. A new round restores the original battlefield.
 
 Occasional enemy biplanes make forward-gun strafing runs and bank away. They have twin wings, struts and bracing wires, a turning propeller, visible gunfire, and engine sound. Shoot them during the approach or take cover. Three direct Maxim hits destroy a biplane for 150 points. Attacks are limited to approaching planes in view; planes stop firing as they turn away.
 
@@ -81,7 +81,7 @@ The game is standalone. Its projectile engine originated in Ballistics Toolkit, 
 
 ## Deployment
 
-The repository uses GitHub Pages with **GitHub Actions** as its publishing source. Push to `main` or run the Deploy game workflow manually. Only `dist/` is uploaded; build output is ignored by Git.
+The repository uses GitHub Pages with **GitHub Actions** as its publishing source. Push to `main` or run the Deploy game workflow manually. Only `dist/` is uploaded; build output is ignored by Git. The build gives each release a content-based asset directory, so the entry module, dynamic mode imports, physics, styles, and Three.js load from the same release even when older files are cached. Original asset paths remain available for previously cached pages.
 
 ## Credits
 

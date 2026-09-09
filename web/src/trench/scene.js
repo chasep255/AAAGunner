@@ -355,7 +355,8 @@ export class TrenchView extends ArenaView
         this.soldier.rotation.z = Math.min(1, target.age * 3) * 1.5;
         this.soldier.position.y += Math.min(1, target.age * 3) * .18;
       }
-      if (target.suppressed || target.fireRemaining > 0) this.soldier.scale.y *= .75;
+      if (target.coverRemaining > 0 && target.fireRemaining <= 0) this.soldier.scale.y *= .55;
+      else if (target.suppressed || target.fireRemaining > 0) this.soldier.scale.y *= .75;
       this.rifle.rotation.x = target.allied || target.fireRemaining > 0 || target.cinematic ? 0 : .3;
       this.rifle.position.z = .52 + (target.cinematic ? target.thrust * .55 : 0);
       this.bayonet.position.z = 1.22 + (target.cinematic ? target.thrust * .55 : 0);
@@ -461,25 +462,14 @@ export class TrenchView extends ArenaView
         allied: true
       });
     }
-    for (const target of [...game.targets.filter(t => t.alive && t.fireRemaining > 0), ...game.biplanes.filter(p => p.alive && p.muzzleFlash > 0)])
+    for (const target of game.biplanes.filter(p => p.alive && p.muzzleFlash > 0))
     {
-      const p = this.flightDirection.copy(target.position).add(new THREE.Vector3(0, target.kind === 'biplane' ? 5 : 2, 0)).project(this.camera);
+      const p = this.flightDirection.copy(target.position).add(new THREE.Vector3(0, 5, 0)).project(this.camera);
       if (p.z > -1 && p.z < 1 && Math.abs(p.x) < .94 && Math.abs(p.y) < .86) markers.push(
       {
         x: (p.x + 1) * 50,
         y: (1 - p.y) * 50,
-        label: target.kind === 'biplane' ? 'STRAFING' : 'RIFLEMAN'
-      });
-    }
-    for (const shell of game.artillery)
-    {
-      const p = this.flightDirection.copy(shell.impact).project(this.camera);
-      if (p.z > -1 && p.z < 1 && Math.abs(p.x) < .9 && Math.abs(p.y) < .82) markers.push(
-      {
-        x: (p.x + 1) * 50,
-        y: (1 - p.y) * 50,
-        label: 'FRIENDLY ARTILLERY',
-        allied: true
+        label: 'STRAFING'
       });
     }
     return markers;

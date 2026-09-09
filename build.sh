@@ -21,6 +21,7 @@ mkdir -p dist/engine
 cp -R web/. dist/
 cp build/physics.js dist/engine/
 cp LICENSE THIRD_PARTY_NOTICES.md dist/
+python3 scripts/package_web.py dist
 printf 'Built AAAGunner in dist/\n'
 if [[ "${1:-}" == '-s' ]]; then
   python3 -m http.server "${PORT:-8002}" --bind 127.0.0.1 --directory dist
