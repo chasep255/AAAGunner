@@ -7,7 +7,7 @@ from './gun-sight.js';
 
 // Positions are metres; +Y is up, forward is −Z. Aircraft, damage, heat, and
 // visual sizes are arcade tuning; the gun uses published 20 mm velocity and BC.
-export const ROUND_SECONDS = 90;
+export const ROUND_SECONDS = 300;
 export const STEP = 1 / 60;
 export const MAX_SHOTS = 160;
 // MKE product catalogue: 20×102 six-barrel cannon MV; M56 A3 HEI-T G1 BC/mass.
@@ -387,7 +387,7 @@ export class ArcadeGame
   }
   get wave()
   {
-    return 1 + Math.floor(this.time / 30);
+    return Math.min(3, 1 + Math.floor(this.time / (ROUND_SECONDS / 3)));
   }
   get accuracy()
   {
