@@ -1,6 +1,8 @@
 import
 {
-  advanceBiplanes
+  advanceBiplanes,
+  biplaneHit,
+  damageBiplane
 }
 from './biplanes.js';
 import
@@ -39,8 +41,8 @@ export const TRENCH_GUN = Object.freeze(
   range: 450,
   lifetime: 2
 });
-export const BELT_SIZE = 250;
-export const RELOAD_TIME = 3.5;
+export const RECOVERY_DELAY = 4;
+export const RECOVERY_RATE = 4;
 export const BREACH_Z = .8;
 export const MAX_INFANTRY = 96;
 export const TRENCH_LEVELS = {
@@ -133,9 +135,6 @@ export class TrenchGame
     this.overheated = false;
     this.spool = 0;
     this.shotClock = 0;
-    this.belt = BELT_SIZE;
-    this.reloadRemaining = 0;
-    this.reloading = false;
     this.spawnClock = this.tuning.interval;
     this.artilleryClock = 3;
     this.endReason = null;
@@ -146,6 +145,9 @@ export class TrenchGame
     this.allies = ALLIED_POSITIONS.map((position, i) => (
     {
       id: 'ally' + i,
+      alive: true,
+      health: 45,
+      deadAge: 0,
       position:
       {
         ...position
@@ -175,7 +177,7 @@ export class TrenchGame
   }
   get regenerating()
   {
-    return this.crewHealth < 75 && this.time - this.lastHit > 7;
+    return this.crewHealth < 75 && this.time - this.lastHit > RECOVERY_DELAY;
   }
   get accuracy()
   {
@@ -235,18 +237,6 @@ export class TrenchGame
         rifleClock: 0
       });
     }
-  }
-  reload()
-  {
-    if (this.state !== 'playing' || this.reloadRemaining || this.belt === BELT_SIZE) return;
-    this.reloadRemaining = RELOAD_TIME;
-    this.reloading = true;
-    this.spool = 0;
-    this.shotClock = 0;
-    this.events.push(
-    {
-      type: 'reload'
-    });
   }
   stopTarget(target, source = 'player')
   {
@@ -308,6 +298,7 @@ export class TrenchGame
       alignment = .97;
     for (const t of [...this.targets, ...this.biplanes])
     {
+      if (!t.alive || t.disabled) continue;
       const delta = {
         x: t.position.x - origin.x,
         y: t.position.y - origin.y,
@@ -380,14 +371,12 @@ export class TrenchGame
     for (const axis of ['x', 'y', 'z']) shot[axis] /= length;
     if (!this.projectiles.fire(shot, muzzle, 0)) return;
     this.shots++;
-    this.belt--;
-    this.heat = Math.min(1, this.heat + .0032);
+    this.heat = Math.min(1, this.heat + .0042);
     this.events.push(
     {
       type: 'shot',
       barrel: 0
     });
-    if (this.belt === 0) this.reload();
     if (this.heat >= 1) this.overheated = true;
   }
   advanceInfantry(dt)
@@ -468,6 +457,12 @@ export class TrenchGame
   {
     for (const ally of this.allies)
     {
+      if (!ally.alive)
+      {
+        ally.deadAge += dt;
+        ally.flash = 0;
+        continue;
+      }
       ally.flash = Math.max(0, ally.flash - dt);
       ally.clock -= dt;
       if (ally.clock > 0 || this.enemyShots.length >= MAX_ENEMY_SHOTS) continue;
@@ -513,12 +508,12 @@ export class TrenchGame
       ally.flash = .07;
       ally.targetId = target.id;
       ally.burst++;
-      if (ally.burst >= 3)
+      if (ally.burst >= 5)
       {
         ally.burst = 0;
-        ally.clock = 4.5 + this.random() * 2;
+        ally.clock = 2.8 + this.random() * 1.4;
       }
-      else ally.clock = .12;
+      else ally.clock = .1;
       this.events.push(
       {
         type: 'allyShot',
@@ -583,21 +578,63 @@ export class TrenchGame
           y: origin.y - (this.ducking ? .78 : 0),
           z: origin.z
         };
-        const playerHit = sweptHit(shot.previous, shot.position, player, player, .34);
-        if (shot.alive && playerHit !== null && playerHit < first)
+        let recipient = null,
+          contact = first;
+        for (const ally of this.allies)
         {
-          this.crewHealth = Math.max(0, this.crewHealth - shot.damage);
-          this.lastHit = this.time;
-          this.suppression = Math.min(1, this.suppression + .4);
-          shot.alive = false;
-          this.events.push(
+          if (!ally.alive) continue;
+          const head = {
+            x: ally.position.x,
+            y: .82,
+            z: ally.position.z + 1.6
+          };
+          const hit = sweptHit(shot.previous, shot.position, head, head, .32);
+          if (hit !== null && hit < contact)
           {
-            type: 'rifleHit',
-            position:
+            contact = hit;
+            recipient = ally;
+          }
+        }
+        const playerHit = sweptHit(shot.previous, shot.position, player, player, .34);
+        if (playerHit !== null && playerHit < contact) recipient = this;
+        if (shot.alive && recipient)
+        {
+          shot.alive = false;
+          if (recipient === this)
+          {
+            this.crewHealth = Math.max(0, this.crewHealth - shot.damage);
+            this.lastHit = this.time;
+            this.suppression = Math.min(1, this.suppression + .4);
+            this.events.push(
             {
-              ...player
+              type: 'rifleHit',
+              position:
+              {
+                ...player
+              }
+            });
+          }
+          else
+          {
+            recipient.health = Math.max(0, recipient.health - shot.damage);
+            if (!recipient.health)
+            {
+              recipient.alive = false;
+              recipient.flash = 0;
+              recipient.deadAge = 0;
+              this.events.push(
+              {
+                type: 'blood',
+                source: 'rifle',
+                position:
+                {
+                  x: recipient.position.x,
+                  y: .7,
+                  z: recipient.position.z + 1.6
+                }
+              });
             }
-          });
+          }
         }
         if (shot.alive && !shot.passed && shot.previous.z < origin.z && shot.position.z >= origin.z)
         {
@@ -656,12 +693,20 @@ export class TrenchGame
         y: this.terrain.height(target.position.x, target.position.z) + 1,
         z: target.position.z + .35
       };
-      const distance = Math.hypot(origin.x - start.x, origin.z - start.z);
-      const spread = (this.difficulty === 'relaxed' ? 4 : this.difficulty === 'frenzy' ? 2.8 : 3.2) * clamp(distance / 160, .45, 1.6);
+      const crew = this.allies.filter(ally => ally.alive);
+      const gunner = crew.length && this.random() > .62 ? crew[Math.floor(this.random() * crew.length)] : null;
+      const aimAt = gunner ?
+      {
+        x: gunner.position.x,
+        y: .82,
+        z: gunner.position.z + 1.6
+      } : origin;
+      const distance = Math.hypot(aimAt.x - start.x, aimAt.z - start.z);
+      const spread = .65 + distance * (this.difficulty === 'relaxed' ? .03 : this.difficulty === 'frenzy' ? .022 : .024);
       const aim = {
-        x: origin.x + (this.random() - .5) * spread,
-        y: origin.y + (this.random() - .5) * spread * .58,
-        z: origin.z
+        x: aimAt.x + (this.random() - .5) * spread,
+        y: aimAt.y + (this.random() - .5) * spread * .58,
+        z: aimAt.z
       };
       const velocity = {
         x: aim.x - start.x,
@@ -807,26 +852,16 @@ export class TrenchGame
     dt = Math.min(dt, this.remaining);
     this.time += dt;
     if (this.time - this.lastKill > 5) this.combo = 0;
-    this.reloadRemaining = Math.max(0, this.reloadRemaining - dt);
-    if (this.reloading && !this.reloadRemaining)
-    {
-      this.belt = BELT_SIZE;
-      this.events.push(
-      {
-        type: 'reloaded'
-      });
-    }
-    this.reloading = this.reloadRemaining > 0;
     this.suppression = Math.max(0, this.suppression - (this.ducking ? .42 : .16) * dt);
-    if (this.regenerating) this.crewHealth = Math.min(75, this.crewHealth + dt * 2);
-    const canFire = firing && !this.ducking && !this.overheated && !this.reloadRemaining && this.belt > 0;
+    if (this.regenerating) this.crewHealth = Math.min(75, this.crewHealth + dt * RECOVERY_RATE);
+    const canFire = firing && !this.ducking && !this.overheated;
     this.spool = clamp(this.spool + (canFire ? 6 : -8) * dt, 0, 1);
-    this.heat = Math.max(0, this.heat - (canFire ? .008 : .11) * dt);
+    this.heat = Math.max(0, this.heat - (canFire ? .008 : .16) * dt);
     if (this.overheated && this.heat < .35) this.overheated = false;
     if (canFire)
     {
       this.shotClock += dt * 10 * this.spool;
-      while (this.shotClock >= 1 && !this.reloadRemaining && !this.overheated)
+      while (this.shotClock >= 1 && !this.overheated)
       {
         this.shotClock--;
         this.fire(direction);
@@ -841,14 +876,17 @@ export class TrenchGame
       if (!shot.alive) continue;
       const ground = this.groundContact(shot.previous, shot.position);
       let victim = null,
+        airframeHit = null,
         first = ground?.fraction ?? Infinity;
       for (const target of [...this.targets, ...this.biplanes])
-        if (target.alive)
+        if (target.alive && !target.disabled)
         {
-          const t = sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
+          const airframe = target.kind === 'biplane' ? biplaneHit(shot.previous, shot.position, target) : null;
+          const t = target.kind === 'biplane' ? airframe?.fraction ?? null : sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
           if (t !== null && t < first)
           {
             victim = target;
+            airframeHit = airframe;
             first = t;
           }
         }
@@ -856,30 +894,7 @@ export class TrenchGame
       {
         shot.alive = false;
         this.hits++;
-        if (victim.kind === 'biplane')
-        {
-          victim.health--;
-          if (victim.health <= 0)
-          {
-            victim.alive = false;
-            this.aircraftKills++;
-            this.score += 150;
-            this.events.push(
-            {
-              type: 'destroyed',
-              kind: 'biplane',
-              position:
-              {
-                ...victim.position
-              },
-              velocity:
-              {
-                ...victim.velocity
-              },
-              points: 150
-            });
-          }
-        }
+        if (victim.kind === 'biplane') damageBiplane(this, victim, airframeHit);
         else this.stopTarget(victim);
         this.events.push(
         {

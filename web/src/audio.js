@@ -238,6 +238,7 @@ export class GameAudio
     if (this.active)
       for (const target of ((game.audioProfile === 'trench' ? game.biplanes : game.targets) || []))
       {
+        if (target.disabled) continue;
         const distance = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
         if (distance < range)
         {

@@ -411,6 +411,7 @@ export class ArenaView
     {
       if (cloud.life > 0) continue;
       cloud.life = cloud.maxLife = big ? 3 + Math.random() * 2 : (shell ? 1.6 : 1.2) + Math.random();
+      cloud.dark = false;
       cloud.size = big ? 8 + Math.random() * 10 : (shell ? 4 : 2) + Math.random() * 3;
       cloud.sprite.position.set(position.x + (Math.random() - .5) * 3, position.y, position.z + (Math.random() - .5) * 3);
       cloud.velocity.set((Math.random() - .5) * 8, 3 + Math.random() * 6, (Math.random() - .5) * 8);
@@ -696,7 +697,8 @@ export class ArenaView
       cloud.sprite.position.addScaledVector(cloud.velocity, dt);
       cloud.sprite.scale.setScalar(cloud.size * (.3 + progress * 1.8));
       cloud.sprite.material.opacity = Math.min(1, age * 5) * (1 - progress) * .8;
-      cloud.sprite.material.color.setRGB(.21 + Math.exp(-age * 7) * .7, .2 + Math.exp(-age * 9) * .23, .19);
+      if (cloud.dark) cloud.sprite.material.color.setRGB(.065, .07, .075);
+      else cloud.sprite.material.color.setRGB(.21 + Math.exp(-age * 7) * .7, .2 + Math.exp(-age * 9) * .23, .19);
       cloud.sprite.material.rotation += dt * .12;
     }
     this.aimGun(direction);

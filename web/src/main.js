@@ -14,7 +14,7 @@ import
 }
 from './audio.js';
 const ui = Object.fromEntries([
-  'trenchDefense', 'lineStatus', 'supportStatus', 'coverBtn', 'suppressionStatus', 'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
+  'trenchDefense', 'lineStatus', 'supportStatus', 'coverBtn', 'suppressionStatus', 'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'secondaryPanel', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
   'bombWarning', 'bombTime', 'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
   'heatWarning', 'gunStatus', 'heatPercent', 'heatMeter', 'heatFill', 'downed',
@@ -94,7 +94,7 @@ function showPanel(mode)
   else if (mode === 'paused')
   {
     ui.panelTitle.textContent = 'Paused';
-    ui.panelDescription.textContent = 'The round and all combat, cooling, and reloads are paused.';
+    ui.panelDescription.textContent = 'The round, combat, cooling, and health recovery are paused.';
     setStartLabel('Resume');
   }
   else if (mode === 'stopped')
@@ -149,11 +149,12 @@ function configureMode()
   ui.modeFact.innerHTML = `<strong>${number}</strong> ${label.join(' ')}`;
   ui.modeLocation.textContent = modeSpec.location;
   ui.modeThreat.textContent = modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS';
-  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / R</kbd> RELOAD · <kbd>C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
+  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
   ui.coastHelp.hidden = modeKey !== 'coast';
   ui.trenchHelp.hidden = modeKey !== 'trench';
   ui.trenchDefense.hidden = modeKey !== 'trench';
   ui.coverBtn.hidden = modeKey !== 'trench';
+  ui.secondaryPanel.hidden = modeKey === 'trench';
   ui.healthMeter.setAttribute('aria-label', 'Player health');
   ui.skyCanvas.setAttribute('aria-label', `Move the mouse to aim. Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
   ui.heatWarning.firstChild.textContent = modeKey === 'trench' ? 'WATER JACKET HOT ' : 'BARRELS HOT ';
@@ -387,7 +388,7 @@ function updateHud()
   if (modeKey === 'trench')
   {
     ui.lineStatus.textContent = `LINE ${game.tuning.breaches-game.breaches}/${game.tuning.breaches} · ${game.breaches} BREACHES`;
-    ui.supportStatus.textContent = `FRIENDLY BATTERY · ${game.artillery.length ? 'FIRING' : 'LOADING'} · ${game.artilleryKills} STOPS`;
+    ui.supportStatus.textContent = `CREWS ${game.allies.filter(ally => ally.alive).length}/2 · BATTERY ${game.artillery.length ? 'FIRING' : 'LOADING'} · ${game.artilleryKills} STOPS`;
     ui.suppressionStatus.textContent = game.ducking ? 'IN COVER' : game.suppression > .25 ? `SUPPRESSED ${Math.round(game.suppression*100)}% · HOLD C` : 'HOLD C TO TAKE COVER';
     ui.coverBtn.textContent = game.ducking ? 'Leave cover' : 'Take cover';
     ui.coverBtn.setAttribute('aria-pressed', String(game.ducking));
@@ -398,10 +399,7 @@ function updateHud()
     ui.healthStatus.parentElement.classList.toggle('recovering', game.regenerating);
     ui.bombWarning.hidden = game.state !== 'playing' || distance === null || distance >= 40;
     ui.bombTime.textContent = `STOP THE CHARGE · ${Math.ceil(distance || 0)} M`;
-    ui.missileStatus.textContent = `${game.belt}/250 · ${game.reloadRemaining ? 'RELOADING' : 'READY'}`;
-    ui.missileReload.textContent = game.reloadRemaining ? `READY IN ${game.reloadRemaining.toFixed(1)}s` : '250-ROUND BELT';
-    ui.missileBtn.disabled = game.state !== 'playing' || Boolean(game.reloadRemaining) || game.belt === 250;
-    ui.gunStatus.textContent = game.ducking ? 'IN COVER' : game.suppression > .35 ? 'SUPPRESSED' : game.reloadRemaining ? 'RELOADING' : game.overheated ? 'COOLING' : game.spool > .2 ? 'FIRING' : 'READY';
+    ui.gunStatus.textContent = game.ducking ? 'IN COVER' : game.suppression > .35 ? 'SUPPRESSED' : game.overheated ? 'COOLING' : game.spool > .2 ? 'FIRING' : 'READY';
   }
 }
 
@@ -554,12 +552,7 @@ window.addEventListener('keydown', event =>
     else if (game.state === 'paused') beginRound(true);
     event.preventDefault();
   }
-  if (event.code === 'KeyR' && modeKey === 'trench')
-  {
-    secondaryAction();
-    event.preventDefault();
-  }
-  else if (event.code === 'KeyR' && game.state !== 'ready') beginRound();
+  if (event.code === 'KeyR' && modeKey === 'coast' && game.state !== 'ready') beginRound();
 });
 window.addEventListener('keyup', event =>
 {
@@ -634,10 +627,10 @@ try
         }
         if (event.type === 'destroyed')
         {
-          if (event.kind !== 'infantry') view.burst(event.position, true, event.velocity);
+          if (event.kind !== 'infantry' && event.kind !== 'biplane') view.burst(event.position, true, event.velocity);
           ui.toast.textContent = `+${event.points}  TARGET DOWN`;
           toastUntil = timestamp + 1400;
-          if (event.kind !== 'infantry') audio.event('explosion', event.position, game.time);
+          if (event.kind !== 'infantry' && event.kind !== 'biplane') audio.event('explosion', event.position, game.time);
         }
         if (event.type === 'incoming')
         {
@@ -740,16 +733,10 @@ try
           ui.toast.textContent = 'BIPLANES INBOUND';
           toastUntil = timestamp + 2200;
         }
-        if (event.type === 'reload')
+        if (event.type === 'planeCrash')
         {
-          ui.toast.textContent = 'RELOADING BELT';
-          toastUntil = timestamp + 1200;
-          audio.event('reload', null, game.time);
-        }
-        if (event.type === 'reloaded')
-        {
-          ui.toast.textContent = 'BELT READY';
-          toastUntil = timestamp + 900;
+          view.planeCrash(event.position, event.velocity);
+          audio.event('explosion', event.position, game.time);
         }
         if (event.type === 'breach')
         {

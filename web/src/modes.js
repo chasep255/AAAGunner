@@ -63,26 +63,26 @@ export const MODES = {
     label: 'Trench',
     description: 'Hold the trench with the Maxim and friendly artillery. Stop the charge, take cover from riflemen and biplanes, and keep the line from being overrun.',
     weapon: 'MAXIM',
-    ammo: 'WATER COOLED · 250-ROUND BELT',
+    ammo: 'WATER COOLED · UNLIMITED AMMO',
     range: '450 M',
     healthLabel: 'HEALTH',
-    secondaryLabel: 'AMMUNITION',
-    action: 'Reload belt',
-    actionHint: 'Reload the Maxim (R or right-click)',
+    secondaryLabel: 'COVER',
+    action: 'Take cover',
+    actionHint: 'Hold C or toggle cover with right-click',
     heatLabel: 'JACKET HEAT',
     stat: 'STOPPED',
-    fact: '250 ROUNDS',
+    fact: '10 ROUNDS/S',
     location: 'NO MAN’S LAND',
     defeatTitle: 'Position lost',
     gunSound: 'maxim',
     secondary(game)
     {
-      game.reload();
+      game.ducking = !game.ducking;
     },
     defeat(game)
     {
       if (game.endReason === 'killed') return 'You were killed at the gun. Hold C to duck behind the parapet when riflemen or biplanes fire, then return fire between bursts.';
-      return `The line was overrun after ${Math.floor(game.time)} seconds. ${game.breaches} attackers reached the trench. Prioritize the closest soldiers and reload between charges.`;
+      return `The line was overrun after ${Math.floor(game.time)} seconds. ${game.breaches} attackers reached the trench. Prioritize the closest soldiers and let the gun cool between bursts.`;
     },
     success(game)
     {

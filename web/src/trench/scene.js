@@ -339,7 +339,7 @@ export class TrenchView extends ArenaView
         y: 0,
         z: -1
       },
-      age: this.clock
+      age: ally.alive ? this.clock : ally.deadAge
     }))];
     let n = 0;
     for (const target of people)
@@ -414,6 +414,14 @@ export class TrenchView extends ArenaView
     this.gun.position.y = -.37 - (game.killer ? Math.max(0, game.defeatAge - .45) * 1.2 : 0);
     super.render(game, direction, dt, reducedMotion);
   }
+  planeCrash(position, velocity)
+  {
+    this.burst(position, true, velocity);
+    for (const explosion of this.explosions)
+      if (explosion.life === explosion.maxLife && explosion.sprite.position.distanceToSquared(new THREE.Vector3(position.x, position.y, position.z)) < 1) explosion.size = 11;
+    for (const cloud of this.smoke)
+      if (cloud.life === cloud.maxLife && cloud.sprite.position.distanceToSquared(new THREE.Vector3(position.x, position.y, position.z)) < 10) cloud.size = 3 + Math.random() * 4;
+  }
   artilleryImpact(position)
   {
     this.burst(position, true);
@@ -432,6 +440,7 @@ export class TrenchView extends ArenaView
     {
       if (cloud.life > 0) continue;
       cloud.life = cloud.maxLife = .6 + Math.random() * .5;
+      cloud.dark = false;
       cloud.size = .5 + Math.random();
       cloud.sprite.position.copy(position);
       cloud.velocity.set((Math.random() - .5) * 2, 1 + Math.random() * 2, (Math.random() - .5) * 2);
@@ -451,17 +460,6 @@ export class TrenchView extends ArenaView
   attackMarkers(game)
   {
     const markers = [];
-    for (const ally of game.allies)
-    {
-      const p = this.flightDirection.set(ally.position.x, 1.15, ally.position.z + .65).project(this.camera);
-      if (Math.abs(p.x) < .93 && Math.abs(p.y) < .9) markers.push(
-      {
-        x: (p.x + 1) * 50,
-        y: (1 - p.y) * 50,
-        label: 'FRIENDLY',
-        allied: true
-      });
-    }
     for (const target of game.biplanes.filter(p => p.alive && p.muzzleFlash > 0))
     {
       const p = this.flightDirection.copy(target.position).add(new THREE.Vector3(0, 5, 0)).project(this.camera);
