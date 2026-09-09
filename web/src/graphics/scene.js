@@ -18,6 +18,7 @@ import
 from './visuals.js';
 import
 {
+  GUN_MUZZLES,
   MAX_SHOTS,
   MAX_ENEMY_SHOTS,
   MAX_MISSILES,
@@ -79,7 +80,6 @@ export class ArenaView
     this.attackPosition = new THREE.Vector3();
     this.dummy = new THREE.Object3D();
     this.clock = 0;
-    this.flashTime = 0;
     this.buildWorld();
     this.buildTurret();
     this.buildTracers();
@@ -125,21 +125,10 @@ export class ArenaView
       metalness: .4,
       roughness: .58
     });
-    const housing = this.mesh(new THREE.CylinderGeometry(.62, .62, 1.4, 32), receiver, this.gun, 0, 0, .1);
-    housing.rotation.x = Math.PI / 2;
-    this.mesh(new THREE.BoxGeometry(.9, .25, 1.2), receiver, this.gun, 0, -.55, .25);
-    this.mesh(new THREE.BoxGeometry(.28, 1.5, .35), dark, this.gun, 0, -1.2, .2);
-    const feed = this.mesh(new THREE.CylinderGeometry(.5, .5, .6, 24), receiver, this.gun, .75, -.1, .45);
-    feed.rotation.z = Math.PI / 2;
-    for (let i = 0; i < 8; i++)
-    {
-      const a = i * Math.PI / 4;
-      this.mesh(new THREE.SphereGeometry(.07, 8, 6), steel, this.gun, Math.cos(a) * .58, Math.sin(a) * .58, .82);
-      const rib = this.mesh(new THREE.BoxGeometry(.075, .075, .85), dark, this.gun, Math.cos(a) * .63, Math.sin(a) * .63, .05);
-      rib.rotation.z = a;
-    }
-    this.rotor = new THREE.Group();
-    this.gun.add(this.rotor);
+    this.mesh(new THREE.BoxGeometry(2.5, .24, 1.1), receiver, this.gun, 0, -.1, .3);
+    this.mesh(new THREE.BoxGeometry(.5, 1.6, .6), dark, this.gun, 0, -1.1, .45);
+    const pivot = this.mesh(new THREE.CylinderGeometry(.42, .42, 1.95, 24), steel, this.gun, 0, -.25, .5);
+    pivot.rotation.z = Math.PI / 2;
     this.barrelMaterial = new THREE.MeshStandardMaterial(
     {
       color: 0x555e63,
@@ -147,30 +136,67 @@ export class ArenaView
       roughness: .3,
       emissive: 0x000000
     });
-    for (let i = 0; i < 6; i++)
+    this.cannons = GUN_MUZZLES.map((
     {
-      const a = i * Math.PI / 3,
-        x = Math.cos(a) * .36,
-        y = Math.sin(a) * .36;
-      const barrel = this.mesh(new THREE.CylinderGeometry(.095, .115, 2.8, 16), this.barrelMaterial, this.rotor, x, y, -1.9);
+      x,
+      y
+    }) =>
+    {
+      const cannon = new THREE.Group();
+      cannon.position.set(x, y, 0);
+      this.gun.add(cannon);
+      this.mesh(new THREE.CylinderGeometry(.28, .3, 1.15, 24), receiver, cannon, 0, 0, .1).rotation.x = Math.PI / 2;
+      this.mesh(new THREE.BoxGeometry(.35, .08, 1.1), steel, cannon, 0, .26, .1);
+      this.mesh(new THREE.CircleGeometry(.23, 24), steel, cannon, 0, 0, .68);
+      for (const x of [-.14, .14])
+        for (const y of [-.14, .14]) this.mesh(new THREE.SphereGeometry(.03, 6, 4), dark, cannon, x, y, .7);
+      this.mesh(new THREE.BoxGeometry(.35, .36, .72), dark, cannon, x < 0 ? -.3 : .3, -.08, .32);
+      const barrel = this.mesh(new THREE.CylinderGeometry(.085, .13, 2.8, 16), this.barrelMaterial, cannon, 0, 0, -1.45);
       barrel.rotation.x = Math.PI / 2;
-      const bore = this.mesh(new THREE.CircleGeometry(.07, 16), dark, this.rotor, x, y, -3.31);
+      for (const z of [-.35, -.65, -.95, -1.25])
+      {
+        this.mesh(new THREE.TorusGeometry(.14, .035, 6, 16), steel, cannon, 0, 0, z);
+      }
+      this.mesh(new THREE.CylinderGeometry(.16, .16, .28, 16), steel, cannon, 0, 0, -2.7).rotation.x = Math.PI / 2;
+      const bore = this.mesh(new THREE.CircleGeometry(.075, 16), dark, cannon, 0, 0, -2.851);
       bore.rotation.y = Math.PI;
-      const collar = this.mesh(new THREE.TorusGeometry(.108, .025, 6, 16), steel, this.rotor, x, y, -3.2);
-      collar.rotation.z = a;
-    }
-    for (const z of [-.8, -2.5]) this.mesh(new THREE.TorusGeometry(.42, .095, 8, 32), receiver, this.rotor, 0, 0, z);
-    this.flash = new THREE.Sprite(new THREE.SpriteMaterial(
-    {
-      map: this.glowTexture,
-      color: 0xffdfa0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false
-    }));
-    this.flash.position.set(0, 0, -3.5);
-    this.flash.visible = false;
-    this.gun.add(this.flash);
+      this.mesh(new THREE.TorusGeometry(.09, .025, 6, 16), steel, cannon, 0, 0, -2.86);
+      const flash = new THREE.Sprite(new THREE.SpriteMaterial(
+      {
+        map: this.glowTexture,
+        color: 0xffdfa0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false
+      }));
+      flash.position.set(0, 0, -2.95);
+      flash.visible = false;
+      cannon.add(flash);
+      cannon.userData.flash = flash;
+      cannon.userData.shotTime = 0;
+      return cannon;
+    });
+    this.muzzlePoint = new THREE.Vector3();
+  }
+
+  aimGun(direction)
+  {
+    this.camera.updateMatrixWorld();
+    this.localAim.copy(direction).transformDirection(this.camera.matrixWorldInverse);
+    this.gun.quaternion.setFromUnitVectors(FORWARD, this.localAim);
+    this.gun.updateWorldMatrix(true, false);
+  }
+
+  muzzlePosition(barrel, direction)
+  {
+    this.aimGun(direction);
+    const offset = GUN_MUZZLES[barrel];
+    return this.muzzlePoint.set(offset.x, offset.y, offset.z + this.cannons[barrel].position.z).applyMatrix4(this.gun.matrixWorld);
+  }
+
+  gunShot(barrel)
+  {
+    this.cannons[barrel].userData.shotTime = .06;
   }
 
   buildTracers()
@@ -663,15 +689,18 @@ export class ArenaView
       cloud.sprite.material.color.setRGB(.21 + Math.exp(-age * 7) * .7, .2 + Math.exp(-age * 9) * .23, .19);
       cloud.sprite.material.rotation += dt * .12;
     }
-    this.localAim.copy(direction).transformDirection(this.camera.matrixWorldInverse);
-    this.gun.quaternion.setFromUnitVectors(FORWARD, this.localAim);
-    this.rotor.rotation.z -= game.spool * dt * 45;
+    this.aimGun(direction);
     this.barrelMaterial.emissive.setRGB(game.heat * 0.5, game.heat * 0.08, 0);
-    this.flashTime = Math.max(0, this.flashTime - dt);
-    this.flash.visible = this.flashTime > 0 && !reducedMotion;
-    this.flash.rotation.z = this.clock * 7;
-    this.flash.scale.set(1.6, 1.6, 1);
-    this.gun.position.y = -1.25 + (reducedMotion ? 0 : Math.sin(this.clock * 62) * 0.013 * game.spool);
+    for (const cannon of this.cannons)
+    {
+      cannon.userData.shotTime = Math.max(0, cannon.userData.shotTime - dt);
+      const kick = cannon.userData.shotTime / .06;
+      cannon.position.z = reducedMotion ? 0 : kick * .12;
+      const flash = cannon.userData.flash;
+      flash.visible = kick > .2 && !reducedMotion;
+      flash.material.rotation = this.clock * 7;
+      flash.scale.setScalar(.7 + kick * .55);
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -689,7 +718,12 @@ export class ArenaView
       explosion.life = 0;
       explosion.sprite.visible = false;
     }
-    this.flashTime = 0;
+    for (const cannon of this.cannons)
+    {
+      cannon.userData.shotTime = 0;
+      cannon.userData.flash.visible = false;
+      cannon.position.z = 0;
+    }
   }
 
   resize()

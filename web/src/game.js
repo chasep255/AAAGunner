@@ -9,7 +9,36 @@ from './gun-sight.js';
 // visual sizes are arcade tuning; the gun uses published 20 mm velocity and BC.
 export const ROUND_SECONDS = 300;
 export const STEP = 1 / 60;
-export const MAX_SHOTS = 160;
+export const MAX_SHOTS = 320;
+// Fictional quad mount: four alternating cannons, 60 rounds/s combined.
+export const GUN_RATE = 60;
+export const GUN_SPREAD = .006;
+export const GUN_MUZZLES = Object.freeze([
+  Object.freeze(
+  {
+    x: -.55,
+    y: .5,
+    z: -2.95
+  }),
+  Object.freeze(
+  {
+    x: .95,
+    y: -.42,
+    z: -2.95
+  }),
+  Object.freeze(
+  {
+    x: .55,
+    y: .5,
+    z: -2.95
+  }),
+  Object.freeze(
+  {
+    x: -.95,
+    y: -.42,
+    z: -2.95
+  })
+]);
 // MKE product catalogue: 20×102 six-barrel cannon MV; M56 A3 HEI-T G1 BC/mass.
 // https://www.scribd.com/document/862494715/MKE-INC-PRODUCT-CATALOUGE-ENG
 // The ammunition table's 1030 m/s is measured at 23.7 m, not at the muzzle.
@@ -248,7 +277,7 @@ class ProjectilePool
     this.flightTable = buildGunFlightTable(physics, this.base, this.atmosphere, GUN_SPEED, GUN_RANGE, GUN_LIFETIME);
   }
 
-  fire(direction)
+  fire(direction, origin = PLAYER_POSITION, barrel = 0)
   {
     const physics = this.physics;
     let projectile = this.slots.find(item => !item.alive);
@@ -270,6 +299,9 @@ class ProjectilePool
     }
     // Published muzzle velocity feeds the same gravity and G1 drag integration.
     const speed = GUN_SPEED;
+    this.launchPosition.x = origin.x;
+    this.launchPosition.y = origin.y;
+    this.launchPosition.z = origin.z;
     this.launchVelocity.x = direction.x * speed;
     this.launchVelocity.y = direction.y * speed;
     this.launchVelocity.z = direction.z * speed;
@@ -282,12 +314,8 @@ class ProjectilePool
     {
       initial.delete();
     }
-    Object.assign(projectile.position,
-    {
-      x: 0,
-      y: 8,
-      z: 0
-    });
+    Object.assign(projectile.position, origin);
+    projectile.barrel = barrel;
     Object.assign(projectile.previous, projectile.position);
     projectile.age = 0;
     projectile.alive = true;
@@ -337,10 +365,16 @@ class ProjectilePool
 
 export class ArcadeGame
 {
-  constructor(physics, random = Math.random, isAttackVisible = () => false, flightHalfWidth = distance => distance * .5)
+  constructor(physics, random = Math.random, isAttackVisible = () => false, flightHalfWidth = distance => distance * .5, muzzlePosition = barrel => (
+  {
+    x: GUN_MUZZLES[barrel].x,
+    y: 8 + GUN_MUZZLES[barrel].y,
+    z: GUN_MUZZLES[barrel].z
+  }))
   {
     this.isAttackVisible = isAttackVisible;
     this.flightHalfWidth = flightHalfWidth;
+    this.muzzlePosition = muzzlePosition;
     this.physics = physics;
     this.random = random;
     this.projectiles = new ProjectilePool(physics);
@@ -371,6 +405,7 @@ export class ArcadeGame
     this.score = 0;
     this.hits = 0;
     this.shots = 0;
+    this.nextBarrel = 0;
     this.destroyed = 0;
     this.combo = 0;
     this.bestCombo = 0;
@@ -618,6 +653,35 @@ export class ArcadeGame
     if (!target.alive || distance < 160 || distance > 1400 || !['approach', 'run'].includes(target.flightPhase)) return false;
     const forward = aircraftForward(target);
     return (forward.x * dx + forward.y * dy + forward.z * dz) / distance > Math.cos(.09);
+  }
+
+  dispersedGunDirection(direction)
+  {
+    // Uniform disk in the plane normal to aim, with heat-dependent angular bloom.
+    const radius = Math.sqrt(this.random()) * Math.tan(GUN_SPREAD * (1 + this.heat));
+    const angle = this.random() * Math.PI * 2;
+    const rightLength = Math.hypot(direction.x, direction.z);
+    const right = rightLength > 1e-8 ?
+    {
+      x: -direction.z / rightLength,
+      y: 0,
+      z: direction.x / rightLength
+    } :
+    {
+      x: 1,
+      y: 0,
+      z: 0
+    };
+    const up = {
+      x: right.y * direction.z - right.z * direction.y,
+      y: right.z * direction.x - right.x * direction.z,
+      z: right.x * direction.y - right.y * direction.x
+    };
+    const result = {};
+    for (const axis of ['x', 'y', 'z']) result[axis] = direction[axis] + radius * (Math.cos(angle) * right[axis] + Math.sin(angle) * up[axis]);
+    const length = Math.hypot(result.x, result.y, result.z);
+    for (const axis of ['x', 'y', 'z']) result[axis] /= length;
+    return result;
   }
 
   gunLead(direction)
@@ -1125,17 +1189,21 @@ export class ArcadeGame
     if (this.overheated && this.heat < 0.32) this.overheated = false;
     if (canFire && this.spool > 0.18)
     {
-      this.shotClock += dt * 30 * this.spool;
+      this.shotClock += dt * GUN_RATE * this.spool;
       while (this.shotClock >= 1 && !this.overheated)
       {
         this.shotClock -= 1;
-        if (this.projectiles.fire(direction))
+        const barrel = this.nextBarrel;
+        const origin = this.muzzlePosition(barrel, direction);
+        if (this.projectiles.fire(this.dispersedGunDirection(direction), origin, barrel))
         {
           this.shots++;
-          this.heat = Math.min(1, this.heat + 0.009);
+          this.nextBarrel = (barrel + 1) % GUN_MUZZLES.length;
+          this.heat = Math.min(1, this.heat + 0.0045);
           this.events.push(
           {
-            type: 'shot'
+            type: 'shot',
+            barrel
           });
         }
         if (this.heat >= 1)

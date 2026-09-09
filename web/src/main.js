@@ -18,7 +18,7 @@ const ui = Object.fromEntries([
   'healthStatus', 'damageOverlay', 'attackIndicators', 'missileStatus', 'missileReload', 'missileBtn', 'volume', 'volumeValue'
 ].map(id => [id, document.getElementById(id)]));
 
-ui.gunAmmo.textContent = `20 MM HEI-T · ${GUN_AMMO.muzzleVelocity} M/S · G1 ${GUN_AMMO.bc.toFixed(3)}`;
+ui.gunAmmo.textContent = `4 × 20 MM HEI-T · ${GUN_AMMO.muzzleVelocity} M/S · G1 ${GUN_AMMO.bc.toFixed(3)}`;
 
 let game, view, frameId, accumulator = 0,
   lastFrame = 0,
@@ -279,7 +279,7 @@ function updateHud()
   ui.missileStatus.parentElement.classList.toggle('locked', locked && !empty);
   ui.reticle.classList.toggle('locked', locked && !empty);
   ui.missileBtn.disabled = game.state !== 'playing' || empty;
-  ui.gunStatus.textContent = game.overheated ? 'COOLING DOWN' : game.spool > 0.2 ? 'SPINNING' : 'READY';
+  ui.gunStatus.textContent = game.overheated ? 'COOLING DOWN' : game.spool > 0.2 ? 'FIRING' : 'READY';
   driveBars.forEach((bar, i) => bar.classList.toggle('active', game.spool > i / 8));
 
 }
@@ -450,7 +450,7 @@ try
   ]);
   const physics = await loadPhysics();
   view = new ArenaView(ui.skyCanvas);
-  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target), distance => view.flightHalfWidth(distance));
+  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target), distance => view.flightHalfWidth(distance), (barrel, direction) => view.muzzlePosition(barrel, direction));
   ui.engineStatus.textContent = 'SYSTEMS READY';
   setStartLabel('Deploy');
   ui.reticle.hidden = true;
@@ -478,7 +478,7 @@ try
       {
         if (event.type === 'shot')
         {
-          view.flashTime = .045;
+          view.gunShot(event.barrel);
           audio.event('gun', null, game.time);
         }
         if (event.type === 'shellImpact')
