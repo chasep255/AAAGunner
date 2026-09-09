@@ -157,7 +157,7 @@ export const DIFFICULTIES = {
     interval: 4.2,
     count: 3,
     radius: 1.3,
-    damage: 1.125,
+    damage: 0.75,
     bombDamage: 35,
     burst: 2,
     flares: 0.25
@@ -168,7 +168,7 @@ export const DIFFICULTIES = {
     interval: 3.2,
     count: 4,
     radius: 1,
-    damage: 1.95,
+    damage: 1.3,
     bombDamage: 48,
     burst: 2,
     flares: 0.5
@@ -179,7 +179,7 @@ export const DIFFICULTIES = {
     interval: 2.2,
     count: 6,
     radius: 0.9,
-    damage: 2.625,
+    damage: 1.75,
     bombDamage: 60,
     burst: 3,
     flares: 0.7
