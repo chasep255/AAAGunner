@@ -26,9 +26,9 @@ export const GUN_SPEED = GUN_AMMO.muzzleVelocity;
 export const GUN_RANGE = 2000;
 export const GUN_LIFETIME = 6;
 export const MAX_ENEMY_SHOTS = 128;
-export const MAX_HEALTH = 100;
-export const REGEN_DELAY = 3;
-export const REGEN_RATE = 9;
+export const MAX_HEALTH = 75;
+export const REGEN_DELAY = 5;
+export const REGEN_RATE = 4;
 export const MISSILE_RELOAD = 3;
 export const MISSILE_MAGAZINE = 5;
 export const MAX_MISSILES = MISSILE_MAGAZINE + Math.ceil(ROUND_SECONDS / MISSILE_RELOAD);
@@ -392,6 +392,10 @@ export class ArcadeGame
   get accuracy()
   {
     return this.shots ? Math.round(100 * this.hits / this.shots) : 0;
+  }
+  get healthPercent()
+  {
+    return 100 * this.health / MAX_HEALTH;
   }
   get regenerating()
   {

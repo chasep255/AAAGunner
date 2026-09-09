@@ -10,6 +10,8 @@ The gun preset uses MKE’s published 20×102 mm six-barrel cannon muzzle veloci
 
 The game integrates gravity and G1 drag with those values in still air. Projectile length and spin effects are unused. HE flashes, smoke, fragments, and distance-delayed blast audio trigger on aircraft, terrain, or water contact. One or two direct HE hits destroy a plane. Damage, cadence, heat, effect sizes, and the 2 km / six-second projectile culling limits remain game rules.
 
+The emplacement has 75 health (shown as 100% when full). Recovery starts after five seconds without a hit and restores four health per second. New damage restarts that delay, and pausing freezes recovery.
+
 ## Controls
 
 | Action | Control |

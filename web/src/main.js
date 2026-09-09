@@ -89,7 +89,7 @@ function showPanel(mode)
     ui.panelTitle.textContent = game.endReason === 'defeated' ? 'Defeated' : 'Survived!';
     ui.panelDescription.textContent = game.endReason === 'defeated' ?
       `You held out for ${Math.floor(game.time)} seconds. Shoot down incoming planes to give your health time to recover.` :
-      `All three waves survived with ${Math.ceil(game.health)}% health remaining. Choose your settings and start another round.`;
+      `All three waves survived with ${Math.ceil(game.healthPercent)}% health remaining. Choose your settings and start another round.`;
     ui.roundSummary.replaceChildren();
     for (const [value, label] of [
         [game.score.toLocaleString(), 'Score'],
@@ -241,13 +241,13 @@ function updateHud()
   ui.heatMeter.setAttribute('aria-valuenow', heat);
   ui.heatMeter.classList.toggle('hot', heat > 75);
   ui.heatWarning.hidden = !game.overheated || game.state !== 'playing';
-  const health = Math.ceil(game.health);
+  const health = Math.ceil(game.healthPercent);
   ui.healthValue.textContent = `${health}%`;
-  ui.healthFill.style.width = `${game.health}%`;
+  ui.healthFill.style.width = `${game.healthPercent}%`;
   ui.healthMeter.setAttribute('aria-valuenow', health);
   ui.healthMeter.classList.toggle('low', health <= 30);
   const incoming = game.enemyShots.length > 0;
-  ui.healthStatus.textContent = incoming ? 'INCOMING FIRE' : game.regenerating ? 'RECOVERING' : health < 100 ? 'RECOVERY PENDING' : 'READY';
+  ui.healthStatus.textContent = incoming ? 'INCOMING FIRE' : game.regenerating ? 'RECOVERING' : game.healthPercent < 100 ? 'RECOVERY PENDING' : 'READY';
   ui.healthStatus.parentElement.classList.toggle('incoming', incoming);
   ui.healthStatus.parentElement.classList.toggle('recovering', game.regenerating && !incoming);
   ui.attackIndicators.replaceChildren(...(game.state === 'playing' ? view.attackMarkers(game).map(position =>
