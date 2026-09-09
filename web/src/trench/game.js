@@ -1,6 +1,7 @@
 import
 {
   advanceBiplanes,
+  FIRST_RAID_SECONDS,
   biplaneHit,
   damageBiplane
 }
@@ -79,7 +80,7 @@ export class TrenchGame
   {
     x: .4,
     y: .65,
-    z: 3
+    z: TRENCH_CAMERA.z - 2.2
   }), terrain = new BattlefieldTerrain())
   {
     this.terrain = terrain;
@@ -127,7 +128,7 @@ export class TrenchGame
     this.ducking = false;
     this.biplanes = [];
     this.aircraftKills = 0;
-    this.raidClock = 38;
+    this.raidClock = FIRST_RAID_SECONDS;
     this.combo = 0;
     this.bestCombo = 0;
     this.lastKill = -10;
@@ -223,6 +224,7 @@ export class TrenchGame
         lane: (this.random() - .5) * Math.min(9, this.halfWidth(20) * 1.3),
         phase: this.random() * Math.PI * 2,
         age: 0,
+        visibleTime: 0,
         radius: .44,
         approachX: x,
         cover: null,
@@ -379,6 +381,12 @@ export class TrenchGame
     });
     if (this.heat >= 1) this.overheated = true;
   }
+  assaultHalfWidth(z, radius = .44)
+  {
+    // Use depth from the standing gunner, with room for the body and screen edges.
+    const width = this.halfWidth(Math.max(.1, origin.z - z));
+    return Math.max(0, width * .8 - Math.min(radius, width * .25));
+  }
   advanceInfantry(dt)
   {
     for (const target of this.targets)
@@ -422,9 +430,13 @@ export class TrenchGame
       const approach = clamp((-target.position.z - 18) / 190, 0, 1);
       const weave = Math.sin(target.age * .8 + target.phase) * Math.min(3.5, -target.position.z * .035);
       const desiredX = target.cover ? target.cover.x : target.lane + (target.approachX - target.lane) * approach + weave;
-      const limit = Math.max(3, this.halfWidth(Math.max(6, -target.position.z)) * .78);
+      const nextZ = target.position.z + (target.cover ? clamp(target.cover.z - target.position.z, -speed * dt, speed * dt) : speed * dt);
+      const limit = this.assaultHalfWidth(Math.min(nextZ, BREACH_Z));
       target.position.x += clamp(clamp(desiredX, -limit, limit) - target.position.x, -speed * .8 * dt, speed * .8 * dt);
-      target.position.z += target.cover ? clamp(target.cover.z - target.position.z, -speed * dt, speed * dt) : speed * dt;
+      // Turn inward as the view narrows, including after a resize; never warp a flank runner.
+      if (Math.abs(target.position.x) <= limit) target.position.z = Math.min(nextZ, BREACH_Z);
+      const visible = Math.abs(target.position.x) <= this.assaultHalfWidth(target.position.z);
+      target.visibleTime = visible ? target.visibleTime + dt : 0;
       if (target.cover && !held && Math.hypot(target.cover.x - target.position.x, target.cover.z - target.position.z) < 1.1)
       {
         target.coverRemaining = 2 + this.random() * 2.5;
@@ -466,27 +478,44 @@ export class TrenchGame
       ally.flash = Math.max(0, ally.flash - dt);
       ally.clock -= dt;
       if (ally.clock > 0 || this.enemyShots.length >= MAX_ENEMY_SHOTS) continue;
-      const candidates = this.targets.filter(t => t.alive && t.position.z > -180);
-      const target = candidates.reduce((best, t) => !best || t.position.z > best.position.z ? t : best, null);
+      const other = this.allies.find(crew => crew !== ally && crew.alive);
+      const priority = target => target.position.z +
+        (target.position.x * ally.position.x >= 0 ? 15 : 0) -
+        (target.id === other?.targetId ? 24 : 0);
+      const candidates = this.targets.filter(t => t.alive && t.position.z > -210).sort((a, b) => priority(b) - priority(a));
+      let target = null,
+        destination = null,
+        distance = 0,
+        flight = 0;
+      for (const candidate of candidates)
+      {
+        distance = Math.hypot(candidate.position.x - ally.position.x, candidate.position.z - ally.position.z);
+        flight = distance / TRENCH_GUN.speed;
+        destination = {
+          x: candidate.position.x + candidate.velocity.x * flight,
+          y: candidate.position.y + candidate.velocity.y * flight,
+          z: candidate.position.z + candidate.velocity.z * flight
+        };
+        if (this.groundContact(ally.position, destination)) continue;
+        target = candidate;
+        break;
+      }
       if (!target)
       {
         ally.clock = .3;
+        ally.targetId = null;
         continue;
       }
-      const distance = Math.hypot(target.position.x - ally.position.x, target.position.z - ally.position.z);
-      const flight = distance / 620;
-      const destination = {
-        x: target.position.x + target.velocity.x * flight + (this.random() - .5) * 7,
-        y: target.position.y + (this.random() - .5) * 1.2,
-        z: target.position.z + target.velocity.z * flight
-      };
+      // Both crews lead their own targets; close threats are easier to hit.
+      destination.x += (this.random() - .5) * (2 + distance * .022);
+      destination.y += (this.random() - .5) * (.75 + distance * .007);
       const velocity = {
         x: destination.x - ally.position.x,
         y: destination.y - ally.position.y,
         z: destination.z - ally.position.z
       };
       const length = Math.hypot(velocity.x, velocity.y, velocity.z);
-      for (const axis of ['x', 'y', 'z']) velocity[axis] *= 620 / length;
+      for (const axis of ['x', 'y', 'z']) velocity[axis] *= TRENCH_GUN.speed / length;
       velocity.y += 4.905 * flight;
       this.enemyShots.push(
       {
@@ -508,10 +537,10 @@ export class TrenchGame
       ally.flash = .07;
       ally.targetId = target.id;
       ally.burst++;
-      if (ally.burst >= 5)
+      if (ally.burst >= 7)
       {
         ally.burst = 0;
-        ally.clock = 2.8 + this.random() * 1.4;
+        ally.clock = 2.4 + this.random() * 1.2;
       }
       else ally.clock = .1;
       this.events.push(
@@ -790,7 +819,7 @@ export class TrenchGame
         duration,
         friendly: true
       });
-      this.artilleryClock = 5.2 + this.random() * 2.8;
+      this.artilleryClock = 3.4 + this.random() * 2;
       this.events.push(
       {
         type: 'artilleryLaunch',
@@ -837,7 +866,7 @@ export class TrenchGame
       const approach = Math.min(1, this.defeatAge / 1.05);
       const ease = approach * approach * (3 - 2 * approach);
       this.killer.position.x = this.killer.start.x * (1 - ease);
-      this.killer.position.z = this.killer.start.z + (4.45 - this.killer.start.z) * ease;
+      this.killer.position.z = this.killer.start.z + (origin.z - 1.55 - this.killer.start.z) * ease;
       this.killer.position.y = 1 - .75 * ease + Math.sin(approach * Math.PI) * .7;
       this.killer.thrust = Math.max(0, Math.sin(Math.min(1, Math.max(0, (this.defeatAge - 1.05) / .45)) * Math.PI));
       this.killer.age = this.defeatAge;
@@ -929,7 +958,7 @@ export class TrenchGame
       return;
     }
     for (const target of this.targets)
-      if (target.alive && target.position.z >= BREACH_Z)
+      if (target.alive && target.position.z >= BREACH_Z && target.visibleTime >= 1.5 && Math.abs(target.position.x) <= this.assaultHalfWidth(BREACH_Z))
       {
         target.alive = false;
         this.breaches++;

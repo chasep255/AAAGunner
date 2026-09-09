@@ -4,13 +4,13 @@ export const TRENCH_CAMERA = Object.freeze(
 {
   x: 0,
   y: .95,
-  z: 6
+  z: 3.4
 });
 export const ALLIED_POSITIONS = Object.freeze([-2.5, 2.5].map(x => Object.freeze(
 {
   x,
   y: .65,
-  z: 1.8
+  z: TRENCH_CAMERA.z - 1.6
 })));
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 export function baseHeight(x, z)

@@ -230,7 +230,7 @@ export class TrenchView extends ArenaView
   buildTurret()
   {
     this.gun = new THREE.Group();
-    this.gun.position.set(.22, -.37, -1.45);
+    this.gun.position.set(.22, -.37, -.9);
     this.gun.scale.setScalar(.66);
     this.camera.add(this.gun);
     const steel = new THREE.MeshStandardMaterial(

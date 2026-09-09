@@ -10,6 +10,7 @@ import
 from './terrain.js';
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export const BIPLANE_HEALTH = 4.4;
+export const FIRST_RAID_SECONDS = 16;
 const ZERO = {
   x: 0,
   y: 0,
@@ -219,7 +220,7 @@ export function advanceBiplanes(game, dt)
       shotClock: .3,
       muzzleFlash: 0
     });
-    game.raidClock = game.difficulty === 'frenzy' ? 36 : 49;
+    game.raidClock = (game.difficulty === 'relaxed' ? 25 : game.difficulty === 'frenzy' ? 17 : 21) + game.random() * 4;
     game.events.push(
     {
       type: 'airRaid'
