@@ -1,17 +1,24 @@
 import
 {
+  GUN_AMMO
+}
+from './game.js';
+import
+{
   GameAudio
 }
 from './audio.js';
 const ui = Object.fromEntries([
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
-  'score', 'combo', 'timer', 'wave', 'reticle', 'toast',
+  'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
   'heatWarning', 'gunStatus', 'heatPercent', 'heatMeter', 'heatFill', 'downed',
   'accuracy', 'shots', 'gamePanel', 'panelTitle', 'panelDescription',
   'roundSummary', 'roundOptions', 'panelStartBtn', 'restartBtn', 'helpBtn', 'helpModal',
   'sessionBest', 'difficulty', 'healthValue', 'healthMeter', 'healthFill',
   'healthStatus', 'damageOverlay', 'attackIndicators', 'missileStatus', 'missileReload', 'missileBtn', 'volume', 'volumeValue'
 ].map(id => [id, document.getElementById(id)]));
+
+ui.gunAmmo.textContent = `20 MM HEI-T · ${GUN_AMMO.muzzleVelocity} M/S · G1 ${GUN_AMMO.bc.toFixed(3)}`;
 
 let game, view, frameId, accumulator = 0,
   lastFrame = 0,
@@ -73,7 +80,7 @@ function showPanel(mode)
   else if (mode === 'stopped')
   {
     ui.panelTitle.textContent = 'Stopped';
-    ui.panelDescription.textContent = 'Choose your difficulty and volume, then deploy for a new round.';
+    ui.panelDescription.textContent = 'Choose your settings, then deploy for a new round.';
     ui.restartBtn.disabled = true;
     setStartLabel('Deploy');
   }
@@ -253,7 +260,16 @@ function updateHud()
     marker.style.top = `${position.y}%`;
     return marker;
   }) : []));
-  const locked = game.state === 'playing' && Boolean(game.missileTarget(view.directionAt(aimX, aimY, focused)));
+  const direction = view.directionAt(aimX, aimY, focused);
+  const sight = game.state === 'playing' && ui.leadAssist.checked ? view.gunLeadMarker(game, direction) : null;
+  ui.gunLead.hidden = !sight;
+  if (sight)
+  {
+    ui.gunLead.style.left = `${sight.x}%`;
+    ui.gunLead.style.top = `${sight.y}%`;
+    ui.gunLeadLabel.textContent = `AIM HERE · ${Math.round(sight.distance / 10) * 10} m`;
+  }
+  const locked = game.state === 'playing' && Boolean(game.missileTarget(direction));
   const empty = game.missileAmmo === 0;
   ui.missileStatus.textContent = `${game.missileAmmo}/5 · ${empty ? 'EMPTY' : locked ? 'LOCK' : 'READY'}`;
   ui.missileReload.textContent = game.missileCooldown > 0 ? `+1 in ${game.missileCooldown.toFixed(1)}s` : 'MAGAZINE FULL';
@@ -284,6 +300,12 @@ ui.missileBtn.addEventListener('click', () =>
   });
 });
 ui.pauseBtn.addEventListener('click', pause);
+ui.leadAssist.addEventListener('change', () =>
+{
+  ui.gunGuide.textContent = ui.leadAssist.checked ? 'AIM AT GOLD RING · 2 KM' : 'GUN RANGE · 2 KM';
+  if (game && view) updateHud();
+});
+
 ui.volume.addEventListener('input', () =>
 {
   audio.setVolume(Number(ui.volume.value) / 100);
@@ -458,9 +480,13 @@ try
           view.flashTime = .045;
           audio.event('gun', null, game.time);
         }
+        if (event.type === 'shellImpact')
+        {
+          view.burst(event.position, false, null, true);
+          audio.event('shellImpact', event.position, game.time);
+        }
         if (event.type === 'hit')
         {
-          view.burst(event.position, false);
           hitUntil = timestamp + 100;
           audio.event('hit', event.position, game.time);
         }

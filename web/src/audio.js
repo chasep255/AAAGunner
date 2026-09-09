@@ -189,10 +189,10 @@ export class GameAudio
     const distance = position ? Math.hypot(position.x, position.y - 8, position.z) : 0;
     this.pending.push(
     {
-      kind: kind === 'distantImpact' ? 'impact' : kind,
+      kind: kind === 'shellImpact' ? 'explosion' : kind === 'distantImpact' ? 'impact' : kind,
       position,
       time: time + distance / 343,
-      gain: kind === 'distantImpact' ? .85 / (1 + distance / 200) : kind === 'explosion' ? 1.1 / (1 + distance / 650) : .5 / (1 + distance / 450)
+      gain: kind === 'shellImpact' ? .65 / (1 + distance / 450) : kind === 'distantImpact' ? .85 / (1 + distance / 200) : kind === 'explosion' ? 1.1 / (1 + distance / 650) : .5 / (1 + distance / 450)
     });
   }
   update(spool, game = null)

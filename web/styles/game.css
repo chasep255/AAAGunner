@@ -38,7 +38,7 @@ kbd { font: 10px 'Courier New', monospace; border: 1px solid #ffffff38; border-r
 .panel-content h1 { font-size: clamp(42px, 6.3vw, 86px); letter-spacing: -.065em; font-weight: 900; line-height: .9; margin: 25px 0; text-transform: uppercase; }
 .panel-content h1 span { display: block; color: var(--accent); }
 .panel-content > p { font-size: 14px; line-height: 1.7; color: #c0cece; max-width: 385px; margin: 0 0 24px; }
-.round-options { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; padding: 18px 0 24px; border-top: 1px solid var(--line); }
+.round-options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 25px; padding: 18px 0 24px; border-top: 1px solid var(--line); }
 .round-options label { font: 10px 'Courier New', monospace; letter-spacing: .08em; color: var(--muted); }
 .round-options select { display: block; width: 100%; margin-top: 9px; padding: 10px 12px; font: 13px Arial, sans-serif; letter-spacing: 0; }
 .round-options select:disabled { opacity: .45; }
@@ -182,3 +182,15 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
   button { transition: none; }
   .damage-overlay { transition: none; box-shadow: inset 0 0 0 4px #c7372d; }
 }
+
+.gun-range { display: block; margin-top: 8px; color: #c6d4cd; font-size: 8px; }
+.gun-lead { position: absolute; width: 20px; height: 20px; border: 2px solid #ffc77b; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; filter: drop-shadow(0 1px 2px #061018); }
+.gun-lead::before, .gun-lead::after { content: ''; position: absolute; background: #ffc77b; }
+.gun-lead::before { width: 4px; height: 2px; top: 7px; left: -6px; }
+.gun-lead::after { width: 4px; height: 2px; top: 7px; right: -6px; }
+.gun-lead span { position: absolute; top: 25px; left: 50%; transform: translateX(-50%); white-space: nowrap; color: #ffe0ad; background: #10202aba; padding: 3px 5px; border-radius: 2px; font: bold 9px 'Courier New', monospace; }
+.panel-open .gun-lead { display: none; }
+
+.aim-option { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.aim-option input { margin: 0; width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.aim-option small { display: block; margin-top: 5px; font: 11px Arial, sans-serif; letter-spacing: 0; opacity: .8; }

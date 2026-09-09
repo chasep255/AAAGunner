@@ -1,8 +1,30 @@
-// Arcade tuning only: these deliberately slow, oversized projectiles and targets do
-// not represent any real gun or aircraft. Positions are metres; +Y is up, forward is −Z.
+import
+{
+  buildGunFlightTable,
+  gunAimPoint
+}
+from './gun-sight.js';
+
+// Positions are metres; +Y is up, forward is −Z. Aircraft, damage, heat, and
+// visual sizes are arcade tuning; the gun uses published 20 mm velocity and BC.
 export const ROUND_SECONDS = 90;
 export const STEP = 1 / 60;
 export const MAX_SHOTS = 160;
+// MKE product catalogue: 20×102 six-barrel cannon MV; M56 A3 HEI-T G1 BC/mass.
+// https://www.scribd.com/document/862494715/MKE-INC-PRODUCT-CATALOUGE-ENG
+// The ammunition table's 1030 m/s is measured at 23.7 m, not at the muzzle.
+export const GUN_AMMO = Object.freeze(
+{
+  name: '20×102 mm HEI-T',
+  muzzleVelocity: 987,
+  bc: .4933883,
+  mass: .103,
+  diameter: .020
+});
+export const GUN_SPEED = GUN_AMMO.muzzleVelocity;
+// Game culling boundary, not a maximum ballistic range.
+export const GUN_RANGE = 2000;
+export const GUN_LIFETIME = 6;
 export const MAX_ENEMY_SHOTS = 128;
 export const MAX_HEALTH = 100;
 export const REGEN_DELAY = 3;
@@ -178,16 +200,45 @@ export function sweptHit(a, b, targetA, targetB, radius)
   return t >= 0 && t <= 1 ? t : null;
 }
 
+// Sample the travelled segment, then refine the first terrain/water crossing.
+function surfaceContact(a, b)
+{
+  const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / 4));
+  const above = t =>
+  {
+    const x = a.x + (b.x - a.x) * t,
+      z = a.z + (b.z - a.z) * t;
+    return a.y + (b.y - a.y) * t - surfaceHeight(x, z);
+  };
+  if (above(0) <= 0) return 0;
+  for (let step = 1; step <= steps; step++)
+  {
+    let high = step / steps;
+    if (above(high) > 0) continue;
+    let low = (step - 1) / steps;
+    for (let i = 0; i < 8; i++)
+    {
+      const middle = (low + high) / 2;
+      if (above(middle) > 0) low = middle;
+      else high = middle;
+    }
+    return high;
+  }
+  return null;
+}
+
 class ProjectilePool
 {
   constructor(physics)
   {
     this.physics = physics;
     this.slots = [];
-    this.base = new physics.Bullet(0.004, 0.006, 0.018, 0.16, physics.DragFunction.G1);
+    // Length is unused with spin disabled; no unpublished dimension is assumed.
+    this.base = new physics.Bullet(GUN_AMMO.mass, GUN_AMMO.diameter, 0, GUN_AMMO.bc, physics.DragFunction.G1);
     this.atmosphere = new physics.Atmosphere();
     this.launchPosition = new physics.Vector3D(0, 8, 0);
     this.launchVelocity = new physics.Vector3D(0, 0, 0);
+    this.flightTable = buildGunFlightTable(physics, this.base, this.atmosphere, GUN_SPEED, GUN_RANGE, GUN_LIFETIME);
   }
 
   fire(direction)
@@ -210,8 +261,8 @@ class ProjectilePool
       };
       this.slots.push(projectile);
     }
-    // Fictional rounds retain the gravity and drag integration.
-    const speed = 220;
+    // Published muzzle velocity feeds the same gravity and G1 drag integration.
+    const speed = GUN_SPEED;
     this.launchVelocity.x = direction.x * speed;
     this.launchVelocity.y = direction.y * speed;
     this.launchVelocity.z = direction.z * speed;
@@ -242,7 +293,7 @@ class ProjectilePool
     {
       if (!projectile.alive) continue;
       Object.assign(projectile.previous, projectile.position);
-      projectile.simulator.simulate(1100, dt, dt);
+      projectile.simulator.simulate(GUN_RANGE, dt, dt);
       const state = projectile.simulator.getCurrentBullet();
       const position = state.getPosition();
       projectile.position.x = position.x;
@@ -253,7 +304,7 @@ class ProjectilePool
       // Only the current step is needed. Keep memory bounded during long bursts.
       projectile.trajectory.clear();
       projectile.age += dt;
-      if (projectile.age > 4 || projectile.position.y < -2 || !Number.isFinite(projectile.position.x + projectile.position.y + projectile.position.z)) projectile.alive = false;
+      if (!Number.isFinite(projectile.position.x + projectile.position.y + projectile.position.z)) projectile.alive = false;
     }
   }
 
@@ -499,6 +550,29 @@ export class ArcadeGame
     if (!target.alive || distance < 160 || distance > 950 || target.flightPhase === 'egress') return false;
     const forward = aircraftForward(target);
     return (forward.x * dx + forward.y * dy + forward.z * dz) / distance > Math.cos(.09);
+  }
+
+  gunLead(direction)
+  {
+    let best = null,
+      alignment = .91;
+    for (const target of this.targets)
+    {
+      if (!target.alive) continue;
+      const x = target.position.x,
+        y = target.position.y - 8,
+        z = target.position.z;
+      const distance = Math.hypot(x, y, z);
+      const dot = (x * direction.x + y * direction.y + z * direction.z) / distance;
+      if (dot <= alignment) continue;
+      const solution = gunAimPoint(target, this.projectiles.flightTable, GUN_RANGE);
+      if (solution)
+      {
+        best = solution;
+        alignment = dot;
+      }
+    }
+    return best;
   }
 
   missileTarget(direction)
@@ -873,7 +947,7 @@ export class ArcadeGame
         if (this.projectiles.fire(direction))
         {
           this.shots++;
-          this.heat = Math.min(1, this.heat + 0.012);
+          this.heat = Math.min(1, this.heat + 0.009);
           this.events.push(
           {
             type: 'shot'
@@ -895,8 +969,9 @@ export class ArcadeGame
     for (const projectile of this.projectiles.slots)
     {
       if (!projectile.alive) continue;
-      let victim = null,
-        contact = Infinity;
+      let victim = null;
+      const groundContact = surfaceContact(projectile.previous, projectile.position);
+      let contact = groundContact ?? Infinity;
       for (const target of this.targets)
       {
         if (!target.alive) continue;
@@ -907,9 +982,22 @@ export class ArcadeGame
           victim = target;
         }
       }
-      if (!victim) continue;
+      if (contact === Infinity)
+      {
+        if (projectile.age > GUN_LIFETIME || Math.hypot(projectile.position.x, projectile.position.y - 8, projectile.position.z) > GUN_RANGE) projectile.alive = false;
+        continue;
+      }
       projectile.alive = false;
-      victim.health--;
+      const impact = {};
+      for (const axis of ['x', 'y', 'z']) impact[axis] = projectile.previous[axis] + (projectile.position[axis] - projectile.previous[axis]) * contact;
+      this.events.push(
+      {
+        type: 'shellImpact',
+        position: impact
+      });
+      if (!victim) continue;
+      // HE hit damage is a game rule, independent of the sourced flight data.
+      victim.health -= 2;
       victim.flash = 0.15;
       this.hits++;
       this.events.push(

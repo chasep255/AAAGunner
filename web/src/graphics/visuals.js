@@ -342,18 +342,30 @@ export function makeRoundGeometry()
   ], 10);
 }
 
-export function makeTracerMaterial()
+export function makeTracerMaterial(player = false)
 {
   return new THREE.ShaderMaterial(
   {
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    uniforms:
+    {
+      player:
+      {
+        value: player ? 1 : 0
+      }
+    },
     vertexShader: `varying float head;
       void main() { head = position.y + .5;
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `varying float head;
-      void main() { gl_FragColor = vec4(mix(vec3(.9,.12,.015), vec3(1.,.82,.38), head), pow(head, 1.8) * .8); }`
+    fragmentShader: `varying float head; uniform float player;
+      void main() {
+        float glow = clamp(head, 0.0, 1.0);
+        vec3 tail = mix(vec3(.9,.12,.015), vec3(1.,.55,.025), player);
+        vec3 tip = mix(vec3(1.,.82,.38), vec3(1.,.9,.3), player);
+        gl_FragColor = vec4(mix(tail, tip, glow), pow(glow, 1.3) * .95); }`
   });
 }
 

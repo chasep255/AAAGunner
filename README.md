@@ -4,6 +4,12 @@ A browser arcade game: defend a coastal gun emplacement through three waves of a
 
 Aircraft approach from 2.5–4 km out on curved routes, bank into turns with limited roll and pitch rates, line up for forward gun passes, evade, and release decoy flares. Aircraft rounds follow the gun barrels with gravity and can miss the emplacement. Gunfire and distant explosions arrive after their sound travel time. Heat-seeking missiles can lock approaching aircraft head-on as well as from behind. They accelerate to cruise speed, lead moving targets, and turn within an angular and lateral-acceleration limit. Losing a target outside the seeker cone ends tracking. Exhaust leaves a fading smoke trail in world space. Missiles have a five-round magazine; one replenishes every three seconds. They remain in flight until a collision or the 4 km range boundary. Each round lasts 90 seconds, with three difficulties and score streaks up to ×5.
 
+The 20 mm rotary gun has yellow luminous tracers, visible HE impact bursts, and an optional gold aim-ahead ring calibrated against its projectile flight model. The **Aim-ahead indicator** setting is off by default and can be toggled in the main or pause menu without restarting. When enabled, aim at the ring and track it during a burst. It estimates aircraft movement and bullet drop; manoeuvres can still cause misses. The barrels also allow a longer burst before overheating.
+
+The gun preset uses MKE’s published 20×102 mm six-barrel cannon muzzle velocity of **987 m/s**, with its **M56 A3 HEI-T projectile: 103 g, G1 BC 0.4933883**. Source: [MKE product catalogue](https://www.scribd.com/document/862494715/MKE-INC-PRODUCT-CATALOUGE-ENG), manufacturer catalogue mirrored on Scribd, entries “20×102 mm 6 Barrel Rotary Cannon” and “20 mm×102 HEI-T (M56 A3)”. The gun and ammunition figures come from separate catalogue entries; the ammunition acceptance velocity of 1030 m/s is measured **23.7 m downrange**, not at the muzzle, and is not used as muzzle velocity.
+
+The game integrates gravity and G1 drag with those values in still air. Projectile length and spin effects are unused. HE flashes, smoke, fragments, and distance-delayed blast audio trigger on aircraft, terrain, or water contact. One or two direct HE hits destroy a plane. Damage, cadence, heat, effect sizes, and the 2 km / six-second projectile culling limits remain game rules.
+
 ## Controls
 
 | Action | Control |
@@ -16,7 +22,7 @@ Aircraft approach from 2.5–4 km out on curved routes, bank into turns with lim
 | Restart | R |
 | Change difficulty | Pause, then Stop and change settings |
 
-Touch players can drag to aim and fire, and use the on-screen missile button. Volume remains adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit.
+Touch players can drag to aim and fire, and use the on-screen missile button. Volume and the aim-ahead indicator remain adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit.
 
 ## Run locally
 
@@ -31,6 +37,7 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 ## Project layout
 
 - `web/src/main.js`: input, menus, HUD, and the fixed-step game loop.
+- `web/src/gun-sight.js`: aim-ahead cue using the game’s projectile flight model.
 - `web/src/game.js`: aircraft paths, weapons, health, scoring, and collision detection.
 - `web/src/graphics/`: Three.js scenery, aircraft models, and effects.
 - `web/src/audio.js`: procedural sound synthesis and distance-delayed mixing.

@@ -177,22 +177,56 @@ export class ArenaView
     geometry.setAttribute('position', new THREE.BufferAttribute(this.tracerPositions, 3).setUsage(THREE.DynamicDrawUsage));
     this.tracers = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial(
     {
-      color: 0xffe6a2,
+      color: 0xffdd45,
       transparent: true,
-      opacity: 0.65
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+      fog: false
     }));
     this.tracers.frustumCulled = false;
     this.scene.add(this.tracers);
-    this.projectileHeads = new THREE.InstancedMesh(makeRoundGeometry(), new THREE.MeshStandardMaterial(
+    const glowGeometry = new THREE.BufferGeometry();
+    glowGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_SHOTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    glowGeometry.setDrawRange(0, 0);
+    this.gunGlow = new THREE.Points(glowGeometry, new THREE.ShaderMaterial(
     {
-      color: 0xc6a075,
-      metalness: .7,
-      roughness: .3
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+      uniforms:
+      {
+        glow:
+        {
+          value: this.glowTexture
+        },
+        pixelRatio:
+        {
+          value: this.renderer.getPixelRatio()
+        }
+      },
+      vertexShader: `uniform float pixelRatio;
+        void main() { vec4 p = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * p;
+          gl_PointSize = clamp(700.0 / max(1.0, -p.z), 4.0, 10.0) * pixelRatio; }`,
+      fragmentShader: `uniform sampler2D glow;
+        void main() { vec4 texel = texture2D(glow, gl_PointCoord);
+          gl_FragColor = vec4(vec3(1.0, .78, .12) * 1.3, texel.a * .95); }`
+    }));
+    this.gunGlow.frustumCulled = false;
+    this.scene.add(this.gunGlow);
+    this.projectileHeads = new THREE.InstancedMesh(makeRoundGeometry(), new THREE.MeshBasicMaterial(
+    {
+      color: 0xffe15a,
+      toneMapped: false,
+      fog: false
     }), MAX_SHOTS);
     this.projectileHeads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.projectileHeads.frustumCulled = false;
     this.scene.add(this.projectileHeads);
-    this.projectileStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(.025, .003, 1, 6), makeTracerMaterial(), MAX_SHOTS);
+    this.projectileStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(.055, .008, 1, 6), makeTracerMaterial(true), MAX_SHOTS);
     this.projectileStreaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.projectileStreaks.frustumCulled = false;
     this.projectileStreaks.count = 0;
@@ -239,7 +273,7 @@ export class ArenaView
     });
     this.explosions = Array.from(
     {
-      length: 16
+      length: 32
     }, () =>
     {
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial(
@@ -327,14 +361,14 @@ export class ArenaView
     this.scene.add(this.flareMesh);
   }
 
-  burst(position, big, velocity = null)
+  burst(position, big, velocity = null, shell = false)
   {
-    let smokeCount = big ? 14 : 2;
+    let smokeCount = big ? 14 : shell ? 4 : 2;
     for (const cloud of this.smoke)
     {
       if (cloud.life > 0) continue;
-      cloud.life = cloud.maxLife = big ? 3 + Math.random() * 2 : 1.2 + Math.random();
-      cloud.size = big ? 8 + Math.random() * 10 : 2 + Math.random() * 3;
+      cloud.life = cloud.maxLife = big ? 3 + Math.random() * 2 : (shell ? 1.6 : 1.2) + Math.random();
+      cloud.size = big ? 8 + Math.random() * 10 : (shell ? 4 : 2) + Math.random() * 3;
       cloud.sprite.position.set(position.x + (Math.random() - .5) * 3, position.y, position.z + (Math.random() - .5) * 3);
       cloud.velocity.set((Math.random() - .5) * 8, 3 + Math.random() * 6, (Math.random() - .5) * 8);
       if (velocity) cloud.velocity.addScaledVector(velocity, .1);
@@ -345,21 +379,21 @@ export class ArenaView
     const explosion = this.explosions.find(item => item.life <= 0);
     if (explosion)
     {
-      explosion.life = explosion.maxLife = big ? .65 : .22;
-      explosion.size = big ? 25 : 5;
+      explosion.life = explosion.maxLife = big ? .65 : shell ? .42 : .22;
+      explosion.size = big ? 25 : shell ? 12 : 5;
       explosion.sprite.position.set(position.x, position.y, position.z);
       explosion.sprite.visible = true;
     }
-    let count = big ? 36 : 7;
+    let count = big ? 36 : shell ? 12 : 7;
     for (const particle of this.particles)
     {
       if (particle.life > 0) continue;
-      particle.life = particle.maxLife = (big ? 1.3 : 0.4) + Math.random() * 0.5;
+      particle.life = particle.maxLife = (big ? 1.3 : shell ? .7 : 0.4) + Math.random() * 0.5;
       particle.position.set(position.x, position.y, position.z);
       particle.velocity.set((Math.random() - 0.5) * 35, Math.random() * 25, (Math.random() - 0.5) * 35);
       if (velocity) particle.velocity.addScaledVector(velocity, .3);
       particle.color = big ? (count % 3 ? 0x6f6254 : 0xffb65f) : 0xffbf77;
-      particle.size = big ? .65 : .2;
+      particle.size = big ? .65 : shell ? .35 : .2;
       if (--count <= 0) break;
     }
   }
@@ -383,6 +417,19 @@ export class ArenaView
       });
     }
     return markers;
+  }
+
+  gunLeadMarker(game, direction)
+  {
+    const sight = game.gunLead(direction);
+    if (!sight) return null;
+    const point = this.flightDirection.set(sight.position.x, sight.position.y, sight.position.z).project(this.camera);
+    if (point.z < -1 || point.z > 1 || Math.abs(point.x) > .94 || Math.abs(point.y) > .88) return null;
+    return {
+      x: (point.x + 1) * 50,
+      y: (1 - point.y) * 50,
+      distance: sight.distance
+    };
   }
 
   directionAt(x, y, focused)
@@ -436,7 +483,7 @@ export class ArenaView
         prev = projectile.previous;
       const i = n * 6;
       this.flightDirection.set(p.x - prev.x, p.y - prev.y, p.z - prev.z).normalize();
-      const length = Math.min(3.5, Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z));
+      const length = Math.min(16, Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z) * 1.5);
       this.tracerPositions.set([p.x, p.y, p.z, p.x - this.flightDirection.x * length, p.y - this.flightDirection.y * length, p.z - this.flightDirection.z * length], i);
       this.dummy.position.set(p.x, p.y, p.z);
       this.dummy.scale.setScalar(1);
@@ -444,6 +491,7 @@ export class ArenaView
       this.dummy.quaternion.setFromUnitVectors(UP, this.flightDirection);
       this.dummy.updateMatrix();
       this.projectileHeads.setMatrixAt(n, this.dummy.matrix);
+      this.gunGlow.geometry.attributes.position.setXYZ(n, p.x, p.y, p.z);
       this.dummy.position.addScaledVector(this.flightDirection, -length / 2);
       this.dummy.scale.set(1, length, 1);
       this.dummy.updateMatrix();
@@ -451,6 +499,8 @@ export class ArenaView
     }
     this.tracers.geometry.setDrawRange(0, n * 2);
     this.tracers.geometry.attributes.position.needsUpdate = true;
+    this.gunGlow.geometry.setDrawRange(0, n);
+    this.gunGlow.geometry.attributes.position.needsUpdate = true;
     this.projectileHeads.count = n;
     this.projectileHeads.instanceMatrix.needsUpdate = true;
     this.projectileStreaks.count = n;
