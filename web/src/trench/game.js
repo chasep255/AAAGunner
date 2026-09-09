@@ -32,6 +32,13 @@ import
 }
 from '../gun-sight.js';
 
+import
+{
+  infantryHit,
+  infantryPose
+}
+from './infantry.js';
+
 // Arcade tuning for the Maxim and infantry; positions and flight use metres.
 export const TRENCH_GUN = Object.freeze(
 {
@@ -45,6 +52,7 @@ export const TRENCH_GUN = Object.freeze(
 export const RECOVERY_DELAY = 4;
 export const RECOVERY_RATE = 4;
 export const BREACH_Z = .8;
+export const ENTRY_Z = 1.65;
 export const MAX_INFANTRY = 96;
 export const TRENCH_LEVELS = {
   relaxed:
@@ -141,6 +149,8 @@ export class TrenchGame
     this.endReason = null;
     this.killer = null;
     this.defeatAge = 0;
+    this.deathAge = 0;
+    this.deathSource = null;
     this.resumeState = null;
     this.state = 'playing';
     this.allies = ALLIED_POSITIONS.map((position, i) => (
@@ -225,6 +235,8 @@ export class TrenchGame
         phase: this.random() * Math.PI * 2,
         age: 0,
         visibleTime: 0,
+        climbing: false,
+        climbAge: 0,
         radius: .44,
         approachX: x,
         cover: null,
@@ -240,10 +252,11 @@ export class TrenchGame
       });
     }
   }
-  stopTarget(target, source = 'player')
+  stopTarget(target, source = 'player', hit = null)
   {
     if (!target.alive) return;
     target.alive = false;
+    target.hitPart = hit?.part;
     target.fragment = source === 'artillery' ? target.id % 3 : -1;
     this.events.push(
     {
@@ -251,7 +264,7 @@ export class TrenchGame
       source,
       position:
       {
-        ...target.position
+        ...(hit?.position || target.position)
       },
       velocity:
       {
@@ -284,6 +297,7 @@ export class TrenchGame
       {
         type: 'destroyed',
         kind: 'infantry',
+        part: hit?.part,
         position:
         {
           ...target.position
@@ -324,20 +338,20 @@ export class TrenchGame
     // Converge the off-centre muzzle onto the camera sight line at the aimed range.
     // This removes camera parallax without leading targets or correcting drop.
     let range = 150,
-      alignment = .995;
+      nearest = Infinity;
+    const end = {
+      x: origin.x + direction.x * TRENCH_GUN.range,
+      y: origin.y + direction.y * TRENCH_GUN.range,
+      z: origin.z + direction.z * TRENCH_GUN.range
+    };
     for (const target of this.targets)
     {
-      const delta = {
-        x: target.position.x - origin.x,
-        y: target.position.y - origin.y,
-        z: target.position.z - origin.z
-      };
-      const distance = Math.hypot(delta.x, delta.y, delta.z);
-      const dot = (delta.x * direction.x + delta.y * direction.y + delta.z * direction.z) / distance;
-      if (dot > alignment)
+      if (!target.alive) continue;
+      const hit = infantryHit(origin, end, target, this.terrain, true);
+      if (hit && hit.fraction < nearest)
       {
-        alignment = dot;
-        range = distance;
+        nearest = hit.fraction;
+        range = hit.fraction * TRENCH_GUN.range;
       }
     }
     direction = {
@@ -391,8 +405,23 @@ export class TrenchGame
   {
     for (const target of this.targets)
     {
+      target.previousPose = infantryPose(target, this.terrain);
       Object.assign(target.previous, target.position);
       target.age += dt;
+      if (target.climbing)
+      {
+        target.climbAge += dt;
+        const progress = Math.min(1, target.climbAge / 1.15);
+        const ease = progress * progress * (3 - 2 * progress);
+        target.position.z = BREACH_Z + (ENTRY_Z - BREACH_Z) * ease;
+        const limit = this.assaultHalfWidth(ENTRY_Z);
+        const x = clamp(target.climbStartX, -limit, limit);
+        target.position.x += clamp(x - target.position.x, -target.speed * .8 * dt, target.speed * .8 * dt);
+        target.position.y = 1 - .75 * ease + Math.sin(progress * Math.PI) * .5;
+        target.visibleTime = Math.abs(target.position.x) <= this.assaultHalfWidth(target.position.z) ? target.visibleTime + dt : 0;
+        for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
+        continue;
+      }
       target.suppressed = Math.max(0, target.suppressed - dt);
       target.dashRemaining = Math.max(0, target.dashRemaining - dt);
       target.tacticClock -= dt;
@@ -448,20 +477,50 @@ export class TrenchGame
       const height = this.terrain.height(target.position.x, target.position.z) + center;
       target.position.y += (height - target.position.y) * Math.min(1, dt * 10);
       for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
+      if (target.position.z >= BREACH_Z && target.visibleTime >= 1.5)
+      {
+        target.climbing = true;
+        target.climbAge = 0;
+        target.climbStartX = target.position.x;
+        target.cover = null;
+        target.coverRemaining = target.fireRemaining = target.suppressed = 0;
+      }
     }
   }
   groundContact(start, end)
   {
+    if (start.y <= this.terrain.height(start.x, start.z)) return {
+      fraction: 0,
+      position:
+      {
+        ...start
+      }
+    };
     const steps = Math.max(1, Math.ceil(Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z) / 1.5));
     for (let i = 1; i <= steps; i++)
     {
       const fraction = i / steps;
       const position = {};
       for (const axis of ['x', 'y', 'z']) position[axis] = start[axis] + (end[axis] - start[axis]) * fraction;
-      if (position.y <= this.terrain.height(position.x, position.z)) return {
-        fraction,
-        position
-      };
+      if (position.y <= this.terrain.height(position.x, position.z))
+      {
+        let low = (i - 1) / steps,
+          high = fraction;
+        for (let j = 0; j < 7; j++)
+        {
+          const middle = (low + high) / 2;
+          const x = start.x + (end.x - start.x) * middle;
+          const y = start.y + (end.y - start.y) * middle;
+          const z = start.z + (end.z - start.z) * middle;
+          if (y <= this.terrain.height(x, z)) high = middle;
+          else low = middle;
+        }
+        for (const axis of ['x', 'y', 'z']) position[axis] = start[axis] + (end[axis] - start[axis]) * high;
+        return {
+          fraction: high,
+          position
+        };
+      }
     }
     return null;
   }
@@ -563,20 +622,22 @@ export class TrenchGame
       shot.velocity.y -= 9.81 * dt;
       const ground = this.groundContact(shot.previous, shot.position);
       let victim = null,
+        infantry = null,
         first = ground?.fraction ?? Infinity;
       for (const target of this.targets)
         if (shot.side !== 'enemy' && target.alive)
         {
-          const t = sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
-          if (t !== null && t < first)
+          const hit = infantryHit(shot.previous, shot.position, target, this.terrain);
+          if (hit && hit.fraction < first)
           {
             victim = target;
-            first = t;
+            infantry = hit;
+            first = hit.fraction;
           }
         }
       if (victim)
       {
-        this.stopTarget(victim, 'ally');
+        this.stopTarget(victim, 'ally', infantry);
         shot.alive = false;
       }
       if (shot.side === 'enemy')
@@ -633,6 +694,7 @@ export class TrenchGame
           {
             this.crewHealth = Math.max(0, this.crewHealth - shot.damage);
             this.lastHit = this.time;
+            if (!this.crewHealth) this.deathSource = shot.source;
             this.suppression = Math.min(1, this.suppression + .4);
             this.events.push(
             {
@@ -700,7 +762,7 @@ export class TrenchGame
       target.flash = Math.max(0, target.flash - dt);
       target.fireCooldown -= dt;
       const visible = Math.abs(target.position.x) < this.halfWidth(-target.position.z) * .76;
-      if (!target.alive || target.suppressed || !visible || target.cover && !target.coverRemaining)
+      if (!target.alive || target.climbing || target.suppressed || !visible || target.cover && !target.coverRemaining)
       {
         target.fireRemaining = 0;
         continue;
@@ -859,6 +921,12 @@ export class TrenchGame
   update(dt, direction, firing)
   {
     if (!Number.isFinite(dt) || dt <= 0) return;
+    if (this.state === 'dying')
+    {
+      this.deathAge += dt;
+      if (this.deathAge >= 2.2) this.finish('killed');
+      return;
+    }
     if (this.state === 'overrun')
     {
       const previous = this.defeatAge;
@@ -867,12 +935,18 @@ export class TrenchGame
       const ease = approach * approach * (3 - 2 * approach);
       this.killer.position.x = this.killer.start.x * (1 - ease);
       this.killer.position.z = this.killer.start.z + (origin.z - 1.55 - this.killer.start.z) * ease;
-      this.killer.position.y = 1 - .75 * ease + Math.sin(approach * Math.PI) * .7;
+      this.killer.position.y = this.killer.start.y + (.25 - this.killer.start.y) * ease + Math.sin(approach * Math.PI) * (this.killer.climbing ? .08 : .7);
       this.killer.thrust = Math.max(0, Math.sin(Math.min(1, Math.max(0, (this.defeatAge - 1.05) / .45)) * Math.PI));
       this.killer.age = this.defeatAge;
       if (previous < 1.24 && this.defeatAge >= 1.24) this.events.push(
       {
-        type: 'bayonetHit'
+        type: 'bayonetHit',
+        position:
+        {
+          x: origin.x,
+          y: origin.y - .35,
+          z: origin.z - .3
+        }
       });
       if (this.defeatAge >= 2.15) this.finish('overrun');
       return;
@@ -906,16 +980,19 @@ export class TrenchGame
       const ground = this.groundContact(shot.previous, shot.position);
       let victim = null,
         airframeHit = null,
+        infantry = null,
         first = ground?.fraction ?? Infinity;
       for (const target of [...this.targets, ...this.biplanes])
         if (target.alive && !target.disabled)
         {
           const airframe = target.kind === 'biplane' ? biplaneHit(shot.previous, shot.position, target) : null;
-          const t = target.kind === 'biplane' ? airframe?.fraction ?? null : sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
+          const body = target.kind === 'infantry' ? infantryHit(shot.previous, shot.position, target, this.terrain) : null;
+          const t = (airframe || body)?.fraction ?? null;
           if (t !== null && t < first)
           {
             victim = target;
             airframeHit = airframe;
+            infantry = body;
             first = t;
           }
         }
@@ -924,13 +1001,13 @@ export class TrenchGame
         shot.alive = false;
         this.hits++;
         if (victim.kind === 'biplane') damageBiplane(this, victim, airframeHit);
-        else this.stopTarget(victim);
+        else this.stopTarget(victim, 'player', infantry);
         this.events.push(
         {
           type: 'hit',
           position:
           {
-            ...victim.position
+            ...(infantry?.position || victim.position)
           }
         });
       }
@@ -954,11 +1031,18 @@ export class TrenchGame
     this.advanceArtillery(dt);
     if (this.crewHealth <= 0)
     {
-      this.finish('killed');
+      this.clearCombat();
+      this.state = 'dying';
+      this.deathAge = 0;
+      this.events.push(
+      {
+        type: 'playerKilled',
+        source: this.deathSource
+      });
       return;
     }
     for (const target of this.targets)
-      if (target.alive && target.position.z >= BREACH_Z && target.visibleTime >= 1.5 && Math.abs(target.position.x) <= this.assaultHalfWidth(BREACH_Z))
+      if (target.alive && target.climbing && target.climbAge >= 1.5 && target.position.z >= ENTRY_Z && target.visibleTime >= 1.5 && Math.abs(target.position.x) <= this.assaultHalfWidth(ENTRY_Z))
       {
         target.alive = false;
         this.breaches++;
@@ -1025,7 +1109,7 @@ export class TrenchGame
   }
   pause()
   {
-    if (this.state === 'playing' || this.state === 'overrun')
+    if (['playing', 'overrun', 'dying'].includes(this.state))
     {
       this.resumeState = this.state;
       this.state = 'paused';
@@ -1048,7 +1132,7 @@ export class TrenchGame
   }
   finish(reason)
   {
-    if (!['playing', 'overrun'].includes(this.state)) return;
+    if (!['playing', 'overrun', 'dying'].includes(this.state)) return;
     this.state = 'ended';
     this.endReason = reason;
     this.clearCombat();
@@ -1059,7 +1143,7 @@ export class TrenchGame
   }
   stop()
   {
-    if (!['playing', 'paused', 'overrun'].includes(this.state)) return;
+    if (!['playing', 'paused', 'overrun', 'dying'].includes(this.state)) return;
     this.state = 'stopped';
     this.clearCombat();
     this.events.length = 0;

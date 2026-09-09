@@ -77,6 +77,8 @@ kbd { font: 10px 'Courier New', monospace; border: 1px solid #ffffff38; border-r
 .health-block.recovering #healthStatus { color: var(--green); }
 .damage-overlay { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 75px 20px #c7372da8; opacity: 0; transition: opacity .2s; }
 .damage-overlay.active { opacity: 1; }
+.screen-blood {position:absolute; inset:0; width:100%; height:100%; z-index:2; pointer-events:none;}
+.arena[data-mode="trench"] .game-toast {z-index:2;}
 .attack-indicators { position: absolute; inset: 0; pointer-events: none; }
 .attack-indicators span { position: absolute; transform: translate(-50%, -100%); padding: 3px 6px; border: 1px solid #ff976e; border-radius: 2px; background: #3c1914d9; color: #ffe0cc; font: bold 10px 'Courier New', monospace; }
 .attack-indicators span::after { content: ''; position: absolute; left: calc(50% - 3px); bottom: -5px; border-top: 4px solid #ff976e; border-left: 3px solid transparent; border-right: 3px solid transparent; }

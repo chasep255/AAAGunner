@@ -206,6 +206,8 @@ export function buildTrenchWorld(view)
   geometry.rotateX(-Math.PI / 2);
   // Plane rows run from negative Z to positive Z after this rotation.
   geometry.translate(0, 0, field.minZ + (field.rows - 1) * field.step / 2);
+  const groundPositions = geometry.attributes.position;
+  for (let i = 0; i < groundPositions.count; i++) groundPositions.setZ(i, Math.min(TRENCH_FRONT, groundPositions.getZ(i)));
   geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count * 3), 3));
   materials.mud.vertexColors = true;
   materials.mud.bumpScale = .055;

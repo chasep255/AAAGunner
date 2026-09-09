@@ -73,7 +73,10 @@ export const MODES = {
     stat: 'STOPPED',
     fact: '10 ROUNDS/S',
     location: 'NO MAN’S LAND',
-    defeatTitle: 'Position lost',
+    defeatTitle(game)
+    {
+      return game.endReason === 'killed' ? 'Killed' : 'Overrun';
+    },
     gunSound: 'maxim',
     secondary(game)
     {
@@ -81,7 +84,7 @@ export const MODES = {
     },
     defeat(game)
     {
-      if (game.endReason === 'killed') return 'You were killed at the gun. Hold C to duck behind the parapet when riflemen or biplanes fire, then return fire between bursts.';
+      if (game.endReason === 'killed') return `${game.deathSource === 'biplane' ? 'Biplane gunfire' : 'Rifle fire'} killed you at the gun after ${Math.floor(game.time)} seconds. Hold C to take cover from incoming fire. ${game.breaches} attackers had entered the trench.`;
       return `The line was overrun after ${Math.floor(game.time)} seconds. ${game.breaches} attackers reached the trench. Prioritize the closest soldiers and let the gun cool between bursts.`;
     },
     success(game)

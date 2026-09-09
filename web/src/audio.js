@@ -227,7 +227,7 @@ export class GameAudio
   }
   update(spool, game = null)
   {
-    this.active = game?.state === 'playing' || game?.state === 'overrun';
+    this.active = ['playing', 'overrun', 'dying'].includes(game?.state);
     this.applyVolume();
     if (!this.context) return;
     const now = this.context.currentTime;
@@ -254,9 +254,10 @@ export class GameAudio
     }
     if (this.active)
     {
+      const time = game.time + (game.deathAge || game.defeatAge || 0);
       for (const sound of this.pending)
-        if (sound.time <= game.time) this.play(sound.kind, sound.position, sound.gain);
-      this.pending = this.pending.filter(sound => sound.time > game.time);
+        if (sound.time <= time) this.play(sound.kind, sound.position, sound.gain);
+      this.pending = this.pending.filter(sound => sound.time > time);
     }
   }
   clear()

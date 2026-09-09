@@ -17,6 +17,11 @@ from './world.js';
 import * as THREE from 'three';
 import
 {
+  infantryPose
+}
+from './infantry.js';
+import
+{
   BloodEffects
 }
 from './blood.js';
@@ -369,6 +374,15 @@ export class TrenchView extends ArenaView
       {
         arm.rotation.x = target.allied || target.fireRemaining > 0 || target.cinematic ? -1.1 : -.45 + (dead || reducedMotion ? 0 : gait * (i ? .35 : -.35));
       });
+      if (!dead && !target.allied && !target.cinematic)
+      {
+        const pose = infantryPose(target, game.terrain);
+        this.soldier.position.set(pose.x, pose.y, pose.z);
+        this.soldier.rotation.y = pose.yaw;
+        this.soldier.scale.y = pose.scale;
+        this.legs.forEach((leg, i) => leg.rotation.x = reducedMotion ? 0 : pose.legs[i]);
+        this.arms.forEach((arm, i) => arm.rotation.x = pose.arms[i]);
+      }
       this.soldier.updateMatrixWorld(true);
       for (const part of this.soldierParts)
       {
@@ -409,9 +423,10 @@ export class TrenchView extends ArenaView
   }
   render(game, direction, dt, reducedMotion)
   {
-    const height = TRENCH_CAMERA.y - (game.ducking ? .78 : 0) - (game.killer ? Math.max(0, game.defeatAge - 1.24) * .35 : 0);
+    const death = Math.min(1, game.deathAge || 0);
+    const height = TRENCH_CAMERA.y - death * .55 - (game.ducking ? .78 : 0) - (game.killer ? Math.max(0, game.defeatAge - 1.24) * .35 : 0);
     this.camera.position.y += (height - this.camera.position.y) * Math.min(1, dt * 12);
-    this.gun.position.y = -.37 - (game.killer ? Math.max(0, game.defeatAge - .45) * 1.2 : 0);
+    this.gun.position.y = -.37 - death * 1.2 - (game.killer ? Math.max(0, game.defeatAge - .45) * 1.2 : 0);
     super.render(game, direction, dt, reducedMotion);
   }
   planeCrash(position, velocity)

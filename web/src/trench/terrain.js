@@ -38,7 +38,7 @@ export class BattlefieldTerrain
     this.craters = [];
     this.scorch.fill(0);
     for (let row = 0; row < this.rows; row++)
-      for (let col = 0; col < this.columns; col++) this.heights[row * this.columns + col] = baseHeight(this.minX + col * this.step, this.minZ + row * this.step);
+      for (let col = 0; col < this.columns; col++) this.heights[row * this.columns + col] = baseHeight(this.minX + col * this.step, Math.min(TRENCH_FRONT, this.minZ + row * this.step));
     let seed = 714;
     const random = () =>
     {
@@ -53,6 +53,8 @@ export class BattlefieldTerrain
   }
   height(x, z)
   {
+    // The parapet is a sharp edge, not a slope into the trench floor.
+    if (z > TRENCH_FRONT) return baseHeight(x, z);
     if (z > this.minZ + (this.rows - 1) * this.step || z < this.minZ || x < this.minX || x > -this.minX) return baseHeight(x, z);
     const col = clamp((x - this.minX) / this.step, 0, this.columns - 1.001),
       row = clamp((z - this.minZ) / this.step, 0, this.rows - 1.001);
