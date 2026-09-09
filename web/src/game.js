@@ -385,6 +385,7 @@ export class ArcadeGame
     this.spawnTarget(undefined, 'wing', undefined, 'cross');
     this.spawnTarget(undefined, 'light', undefined, 'swoop');
     this.spawnTarget(undefined, 'wing', undefined, 'sweep');
+    this.spawnTarget();
   }
 
   get remaining()
@@ -394,6 +395,10 @@ export class ArcadeGame
   get wave()
   {
     return Math.min(3, 1 + Math.floor(this.time / (ROUND_SECONDS / 3)));
+  }
+  get aircraftLimit()
+  {
+    return Math.ceil((this.tuning.count + this.wave - 1) * 1.25);
   }
   get accuracy()
   {
@@ -577,7 +582,11 @@ export class ArcadeGame
     const desiredBank = turning ? -target.side * Math.atan(target.speed * target.speed / (9.81 * target.turnRadius)) : clamp(Math.atan(headingError * .8 * target.speed / 9.81), -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT);
     target.bank += clamp(clamp(desiredBank, -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT) - target.bank, -AIRCRAFT_ROLL_RATE * dt, AIRCRAFT_ROLL_RATE * dt);
     target.heading += 9.81 * Math.tan(target.bank) / target.speed * dt;
-    const desiredPitch = turning ? clamp((180 - target.position.y) * .002, -.08, .12) : clamp(Math.atan2(dy, Math.hypot(dx, dz)), -.25, .3);
+    // Raise the nose during a gun pass so gravity does not send every round short.
+    const horizontalRange = Math.hypot(dx, dz);
+    const gunFlightTime = horizontalRange / ((ENEMY_ROUND_SPEED + target.speed) * Math.cos(target.pitch));
+    const aimHeight = dy + (target.flightPhase === 'run' ? 4.905 * gunFlightTime * gunFlightTime : 0);
+    const desiredPitch = turning ? clamp((180 - target.position.y) * .002, -.08, .12) : clamp(Math.atan2(aimHeight, horizontalRange), -.25, .3);
     const pitchRate = clamp((desiredPitch - target.pitch) * .8, -AIRCRAFT_PITCH_RATE, AIRCRAFT_PITCH_RATE);
     target.pitchRate += (pitchRate - target.pitchRate) * (1 - Math.exp(-dt * 2));
     target.pitch += target.pitchRate * dt;
@@ -1208,7 +1217,7 @@ export class ArcadeGame
     const regenTime = Math.max(0, this.time - Math.max(this.time - dt, this.lastDamage + REGEN_DELAY));
     this.health = Math.min(MAX_HEALTH, this.health + REGEN_RATE * regenTime);
     this.spawnClock -= dt;
-    if (this.spawnClock <= 0 && this.targets.length < this.tuning.count + this.wave - 1)
+    if (this.spawnClock <= 0 && this.targets.length < this.aircraftLimit)
     {
       this.spawnTarget();
       this.spawnClock = this.tuning.interval / (1 + (this.wave - 1) * 0.15);
