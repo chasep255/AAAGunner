@@ -22,13 +22,19 @@ The emplacement has 75 health (shown as 100% when full). Recovery starts after f
 
 ## Trench
 
-Defend a WWI-style trench across a scarred, muddy battlefield, with sandbags, barbed wire, shell holes, dead trees, and charging infantry. Initial attackers start 170–265 metres out; later groups arrive 210–305 metres away. They converge on the trench while weaving and slow down near shell explosions. Each of the three waves increases the pressure.
+Defend a connected, dug-out WWI-style trench. You and two allied Maxim crews stand on firing steps behind the same sandbagged parapet. Timber revetments, duckboards, traverses, ammunition crates, and spent cases surround the position. Soft shadows, textured soil and timber, concertina wire, dead vegetation, and shell holes give no man’s land its shape.
 
-The Maxim has a visible water jacket, hose, feed belt, and individual muzzle flash and recoil. It fires ten rounds per second from a **250-round belt**. Press **R**, right-click, or tap **Reload belt** to reload in **3.5 seconds**; an empty belt reloads automatically. The water jacket heats gradually during sustained fire and cools when you release the trigger. Overheating stops firing until it cools. The optional aim-ahead ring accounts for movement and bullet drop.
+Initial attackers start 170–265 metres out; later groups arrive 210–305 metres away. Some stop and crouch to fire rifles while others keep charging. Hits wound you and near misses cause suppression, increasing gun dispersion. **Hold C** or toggle **Take cover** to duck behind the parapet. You cannot fire while ducked, but cooling, reloading, and recovery continue. Low rounds hit the parapet; your exposed head can be hit while operating the gun. You have 75 health, displayed as 100%, and regain two health per second after seven seconds without damage. Zero health ends the round.
 
-Two friendly gunners fire bursts that can stop attackers. They support your defense but cannot hold the line alone. Artillery arcs into no man’s land with descending whistles, blasts, smoke, and debris; explosions stop nearby infantry and briefly suppress others. Bullet hits produce blood sprays, wounds, and falling bodies. Artillery adds dismemberment and flying fragments. Blood stains linger in the mud. Effect pools are bounded and clear on restart or mode changes.
+The Maxim has a water jacket, hose, feed belt, muzzle flash and recoil. It fires ten rounds per second from a **250-round belt**. Press **R**, right-click, or tap **Reload belt** to reload in **3.5 seconds**; an empty belt reloads automatically. Firing heats the water jacket; releasing the trigger cools it. Overheating stops firing until it cools. The optional aim-ahead ring accounts for movement and bullet drop.
 
-You lose when attackers **overrun the trench**: eight breaches on Relaxed, five on Arcade, or three on Frenzy. LINE shows the remaining breach allowance; it does not regenerate. Artillery does not subtract from that allowance. Hold until the five-minute timer expires to win. Player stops earn 25 points with streaks up to ×5; friendly and artillery stops do not add to your score. Each mode keeps its own session best.
+Friendly gunners support your defense from protected bays beside you. Friendly artillery launches from behind your line and targets groups of attackers, keeping impacts at least 45 metres forward of the position. Green impact markers and a support counter identify its fire. Blasts stop or suppress attackers and excavate persistent craters, with depressed bowls, raised rims, darkened soil, water, and scattered debris. The same terrain samples control rendering, infantry footing, blood effects, and bullet impacts. A new round restores the original battlefield.
+
+Occasional enemy biplanes make forward-gun strafing runs and bank away. They have twin wings, struts and bracing wires, a turning propeller, visible gunfire, and engine sound. Shoot them during the approach or take cover. Three direct Maxim hits destroy a biplane for 150 points. Attacks are limited to approaching planes in view; planes stop firing as they turn away.
+
+The line can withstand eight infantry breaches on Relaxed, five on Arcade, or three on Frenzy. LINE shows that separate allowance and does not regenerate. An overrun triggers a short animation: an attacker climbs into the trench, lunges with a bayonet, and blood and an impact sound precede the defeat screen. The animation respects Pause, Stop, and Restart. Bullet hits leave blood sprays, wounds and falling bodies; artillery adds dismemberment and fragments. Blood stains linger in the mud. All effect pools are bounded.
+
+Hold until the five-minute timer expires to win. Infantry stops earn 25 points with streaks up to ×5; friendly and artillery stops do not add to your score. Each mode keeps its own session best.
 
 This is an arcade representation. The Maxim profile uses fictional tuning (740 m/s, G1 BC 0.48, 11.3 g, 7.92 mm), with gravity and drag from the shared WASM engine and a 450-metre projectile boundary. These values are not presented as verified historical specifications.
 
@@ -40,6 +46,7 @@ This is an arcade representation. The Maxim profile uses fictional tuning (740 m
 | Fire gun | Hold left mouse or Space |
 | Fire missile (Coast) | Right mouse or M |
 | Reload belt (Trench) | Right mouse or R |
+| Take cover (Trench) | Hold C, or toggle Take cover |
 | Pause / resume | P or Escape |
 | Restart | Restart button; R in Coast |
 | Change mode or difficulty | Pause, then Stop and change settings |
@@ -60,7 +67,7 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 
 - `web/src/main.js`: input, menus, HUD, and the fixed-step game loop.
 - `web/src/modes.js`: mode registry and mode-specific presentation and setup.
-- `web/src/trench/`: infantry assaults, Maxim, artillery, trench scenery, and blood effects.
+- `web/src/trench/`: infantry and biplane attacks, Maxim, cover, friendly artillery, shared deformable terrain, trench scenery, and blood effects.
 - `web/src/gun-sight.js`: aim-ahead cue using the game’s projectile flight model.
 - `web/src/game.js`: aircraft paths, weapons, health, scoring, and collision detection.
 - `web/src/graphics/`: Three.js scenery, aircraft models, and effects.

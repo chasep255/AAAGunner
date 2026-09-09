@@ -8,8 +8,9 @@ from './game.js';
 // Fixed pools keep a full round of sprays, fragments, and stains bounded.
 export class BloodEffects
 {
-  constructor(scene)
+  constructor(scene, heightAt = trenchHeight)
   {
+    this.heightAt = heightAt;
     this.dummy = new THREE.Object3D();
     this.color = new THREE.Color();
     this.drops = Array.from(
@@ -87,18 +88,24 @@ export class BloodEffects
   }
   burst(position, source, velocity)
   {
-    const blast = source === 'artillery';
+    const blast = source === 'artillery',
+      stab = source === 'bayonet';
     this.stain(position.x, position.z, blast ? 2.4 : 1.1);
-    for (let i = 0; i < (blast ? 140 : 65); i++)
+    for (let i = 0; i < (stab ? 20 : blast ? 140 : 65); i++)
     {
       const drop = this.drops[this.dropCursor++ % this.drops.length];
       drop.life = .65 + Math.random() * .9;
-      drop.size = .04 + Math.random() * (blast ? .16 : .11);
+      drop.size = stab ? .018 + Math.random() * .025 : .04 + Math.random() * (blast ? .16 : .11);
       drop.position.set(position.x, position.y + (Math.random() - .5) * .5, position.z);
       drop.velocity.set((Math.random() - .5) * (blast ? 15 : 8), 1 + Math.random() * (blast ? 10 : 4), (Math.random() - .5) * (blast ? 15 : 7) - (blast ? 0 : 3));
+      if (stab)
+      {
+        drop.velocity.z = -2 - Math.random() * 3;
+        drop.velocity.y *= .4;
+      }
       if (velocity) drop.velocity.addScaledVector(velocity, .2);
     }
-    for (let i = 0; i < (blast ? 9 : 2); i++)
+    for (let i = 0; i < (stab ? 0 : blast ? 9 : 2); i++)
     {
       const fragment = this.fragments[this.fragmentCursor++ % this.fragments.length];
       fragment.life = 10;
@@ -119,7 +126,7 @@ export class BloodEffects
       drop.life -= dt;
       drop.velocity.y -= 9.81 * dt;
       drop.position.addScaledVector(drop.velocity, dt);
-      if (drop.position.y <= trenchHeight(drop.position.x, drop.position.z) + .03)
+      if (drop.position.y <= this.heightAt(drop.position.x, drop.position.z) + .03)
       {
         drop.life = 0;
         if (this.dropCursor++ % 7 === 0) this.stain(drop.position.x, drop.position.z, .15 + drop.size * 2);
@@ -144,7 +151,7 @@ export class BloodEffects
         fragment.position.addScaledVector(fragment.velocity, dt);
         fragment.rotation.x += dt * 7;
         fragment.rotation.z += dt * 4;
-        const ground = trenchHeight(fragment.position.x, fragment.position.z) + .09;
+        const ground = this.heightAt(fragment.position.x, fragment.position.z) + .09;
         if (fragment.position.y < ground)
         {
           fragment.position.y = ground;
@@ -168,7 +175,7 @@ export class BloodEffects
     {
       if (stain.life <= 0) continue;
       stain.life -= dt;
-      this.dummy.position.set(stain.x, trenchHeight(stain.x, stain.z) + .055, stain.z);
+      this.dummy.position.set(stain.x, this.heightAt(stain.x, stain.z) + .055, stain.z);
       this.dummy.rotation.set(0, stain.rotation, 0);
       this.dummy.scale.set(stain.size * Math.min(1, stain.life / 5), 1, stain.size * .65 * Math.min(1, stain.life / 5));
       this.dummy.updateMatrix();

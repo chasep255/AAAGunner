@@ -1,3 +1,19 @@
+import
+{
+  updateBiplanes
+}
+from './aircraft.js';
+import
+{
+  TRENCH_CAMERA
+}
+from './terrain.js';
+import
+{
+  buildTrenchWorld,
+  updateBattlefield
+}
+from './world.js';
 import * as THREE from 'three';
 import
 {
@@ -11,8 +27,7 @@ import
 from '../graphics/scene.js';
 import
 {
-  MAX_INFANTRY,
-  trenchHeight
+  MAX_INFANTRY
 }
 from './game.js';
 
@@ -24,130 +39,7 @@ export class TrenchView extends ArenaView
   }
   buildWorld()
   {
-    this.camera.position.set(0, 2.2, 5);
-    this.camera.fov = 50;
-    this.camera.lookAt(0, 0, -48);
-    this.scene.fog = new THREE.Fog(0x8d8b7f, 170, 650);
-    this.renderer.setClearColor(0x8d8b7f);
-    const fill = new THREE.DirectionalLight(0xd0d5cc, 1.7);
-    fill.position.set(-4, 8, 12);
-    this.scene.add(fill);
-    for (const item of this.scene.children)
-      if (item.isLight) item.intensity *= .7;
-    this.skyMaterial = new THREE.ShaderMaterial(
-    {
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms:
-      {
-        time:
-        {
-          value: 0
-        }
-      },
-      vertexShader: 'varying vec3 p; void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-      fragmentShader: `varying vec3 p;uniform float time;float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}void main(){vec3 d=normalize(p);vec2 q=d.xz/max(.08,d.y)*1.8+time*.002;float n=noise(q)*.6+noise(q*3.1)*.25+noise(q*7.8)*.15;vec3 c=mix(vec3(.57,.56,.50),vec3(.22,.25,.27),max(0.,d.y));c+=vec3(.15)*smoothstep(.3,.8,n)*smoothstep(.015,.22,d.y);gl_FragColor=vec4(c,1.);}`
-    });
-    this.mesh(new THREE.SphereGeometry(900, 24, 16), this.skyMaterial, this.scene);
-    const land = new THREE.PlaneGeometry(900, 700, 150, 130);
-    land.rotateX(-Math.PI / 2);
-    land.translate(0, 0, -280);
-    const positions = land.attributes.position,
-      colors = new Float32Array(positions.count * 3);
-    for (let i = 0; i < positions.count; i++)
-    {
-      const x = positions.getX(i),
-        z = positions.getZ(i);
-      positions.setY(i, trenchHeight(x, z));
-      const tone = .7 + .12 * Math.sin(x * 2.1 + z * .6) + .08 * Math.sin(x * .07 - z * .03);
-      colors.set([.29 * tone, .255 * tone, .19 * tone], i * 3);
-    }
-    land.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    land.computeVertexNormals();
-    this.mesh(land, new THREE.MeshStandardMaterial(
-    {
-      vertexColors: true,
-      map: this.makeMudTexture(),
-      roughness: .93
-    }), this.scene);
-    const mud = new THREE.MeshStandardMaterial(
-    {
-      color: 0x302b22,
-      roughness: 1
-    });
-    const puddle = new THREE.MeshStandardMaterial(
-    {
-      color: 0x555e59,
-      roughness: .22,
-      metalness: .2
-    });
-    let seed = 741;
-    const random = () =>
-    {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return seed / 4294967296;
-    };
-    for (let i = 0; i < 62; i++)
-    {
-      const x = (random() - .5) * 300,
-        z = -24 - random() * 365,
-        radius = 1.8 + random() * 5;
-      const crater = this.mesh(new THREE.CircleGeometry(radius, 18), mud, this.scene, x, trenchHeight(x, z) + .04, z);
-      crater.rotation.x = -Math.PI / 2;
-      const water = this.mesh(new THREE.CircleGeometry(radius * .55, 16), puddle, this.scene, x, trenchHeight(x, z) + .055, z);
-      water.rotation.x = -Math.PI / 2;
-    }
-    const bags = new THREE.InstancedMesh(new THREE.CapsuleGeometry(.22, .75, 3, 8), new THREE.MeshStandardMaterial(
-    {
-      color: 0x776950,
-      roughness: 1
-    }), 180);
-    const transform = new THREE.Object3D();
-    let bagCount = 0;
-    for (let row = 0; row < 3; row++)
-      for (let i = -24; i <= 24; i++)
-      {
-        const x = i * .98 + (row % 2) * .45;
-        transform.position.set(x, .27 + row * .39, -6 - Math.abs(x) * .22);
-        transform.rotation.set(0, (random() - .5) * .12, Math.PI / 2);
-        transform.scale.set(1, 1, 1.25);
-        transform.updateMatrix();
-        bags.setMatrixAt(bagCount++, transform.matrix);
-      }
-    bags.count = bagCount;
-    this.scene.add(bags);
-    const wood = new THREE.MeshStandardMaterial(
-    {
-      color: 0x494035,
-      roughness: .95
-    });
-    for (let i = -12; i <= 12; i++) this.mesh(new THREE.BoxGeometry(.18, 1.2, .16), wood, this.scene, i * 2, .35, -5.5 - Math.abs(i * 2) * .22);
-    const wire = [];
-    for (const z of [-55, -110])
-      for (let x = -140; x <= 140; x += 12)
-      {
-        if (Math.abs(x % 36) < 5) continue;
-        const post = this.mesh(new THREE.BoxGeometry(.1, 1.45, .1), wood, this.scene, x, .55, z);
-        post.rotation.z = Math.sin(x) * .18;
-        for (const y of [.45, .9]) wire.push(x, y, z, x + 11, y - .15, z);
-        for (let t = 0; t < 10; t++) wire.push(x + t, .8, z, x + t + .25, 1.05, z + .1);
-      }
-    const wireGeometry = new THREE.BufferGeometry();
-    wireGeometry.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
-    this.scene.add(new THREE.LineSegments(wireGeometry, new THREE.LineBasicMaterial(
-    {
-      color: 0x282a26
-    })));
-    for (let i = 0; i < 28; i++)
-    {
-      const x = (random() - .5) * 650,
-        z = -230 - random() * 220,
-        height = 3 + random() * 7;
-      const trunk = this.mesh(new THREE.CylinderGeometry(.12, .4, height, 5), wood, this.scene, x, height / 2, z);
-      trunk.rotation.z = (random() - .5) * .25;
-      const branch = this.mesh(new THREE.CylinderGeometry(.04, .14, height * .6, 5), wood, this.scene, x + .8, height * .6, z);
-      branch.rotation.z = .8;
-    }
+    buildTrenchWorld(this);
     this.buildSoldiers();
     this.friendlyMounts = [-1, 1].map(() =>
     {
@@ -168,7 +60,7 @@ export class TrenchView extends ArenaView
       this.scene.add(mount);
       return mount;
     });
-    this.blood = new BloodEffects(this.scene);
+    this.blood = new BloodEffects(this.scene, (x, z) => this.terrain.height(x, z));
     this.hiddenPart = new THREE.Matrix4().makeScale(0, 0, 0);
     this.artilleryModels = Array.from(
     {
@@ -187,6 +79,24 @@ export class TrenchView extends ArenaView
       glow.visible = false;
       this.scene.add(glow);
       return glow;
+    });
+    this.rifleFlashes = Array.from(
+    {
+      length: MAX_INFANTRY
+    }, () =>
+    {
+      const model = new THREE.Sprite(new THREE.SpriteMaterial(
+      {
+        map: this.glowTexture,
+        color: 0xffd99a,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false
+      }));
+      model.scale.setScalar(1.15);
+      model.visible = false;
+      this.scene.add(model);
+      return model;
     });
     this.allyFlashes = Array.from(
     {
@@ -207,30 +117,6 @@ export class TrenchView extends ArenaView
       return glow;
     });
   }
-  makeMudTexture()
-  {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 256;
-    const context = canvas.getContext('2d');
-    const image = context.createImageData(256, 256);
-    let seed = 104;
-    for (let y = 0; y < 256; y++)
-      for (let x = 0; x < 256; x++)
-      {
-        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-        const noise = seed / 4294967296;
-        const grain = 165 + noise * 60 + Math.sin(x * .23 + Math.sin(y * .11)) * 18 + Math.sin(y * .35) * 10;
-        const i = (y * 256 + x) * 4;
-        image.data.set([grain, grain, grain, 255], i);
-      }
-    context.putImageData(image, 0, 0);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(110, 85);
-    texture.anisotropy = 4;
-    this.textures.add(texture);
-    return texture;
-  }
   buildSoldiers()
   {
     this.soldier = new THREE.Group();
@@ -247,7 +133,7 @@ export class TrenchView extends ArenaView
     });
     const leather = new THREE.MeshStandardMaterial(
     {
-      color: 0x302a23,
+      color: 0x594b36,
       roughness: .9
     });
     const part = (geometry, material, parent, x, y, z, tinted = false) =>
@@ -256,6 +142,8 @@ export class TrenchView extends ArenaView
       const instances = new THREE.InstancedMesh(geometry, material, MAX_INFANTRY + 40);
       instances.frustumCulled = false;
       instances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      instances.castShadow = true;
+      instances.receiveShadow = true;
       this.scene.add(instances);
       this.soldierParts.push(
       {
@@ -266,16 +154,43 @@ export class TrenchView extends ArenaView
       return node;
     };
     part(new THREE.CapsuleGeometry(.22, .3, 3, 6), uniform, this.soldier, 0, 1.05, 0, true);
+    part(new THREE.CylinderGeometry(.08, .09, .15, 8), skin, this.soldier, 0, 1.445, 0);
     this.head = part(new THREE.SphereGeometry(.14, 8, 6), skin, this.soldier, 0, 1.57, 0);
     const helmet = part(new THREE.SphereGeometry(.19, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), uniform, this.soldier, 0, 1.65, 0, true);
     helmet.scale.y = .75;
     this.helmet = helmet;
+    const brim = part(new THREE.SphereGeometry(.22, 14, 8, 0, Math.PI * 2, Math.PI * .43, Math.PI * .14), uniform, this.soldier, 0, 1.63, 0, true);
+    brim.scale.y = .26;
+    part(new THREE.CylinderGeometry(.105, .12, .07, 10), uniform, this.soldier, 0, 1.39, 0, true);
+    part(new THREE.BoxGeometry(.44, .085, .3), leather, this.soldier, 0, .86, 0);
+    for (const side of [-1, 1])
+    {
+      part(new THREE.SphereGeometry(.047, 7, 5), skin, this.soldier, side * .13, 1.57, .015);
+      const strap = part(new THREE.BoxGeometry(.047, .56, .045), leather, this.soldier, side * .13, 1.13, .206);
+      strap.rotation.z = side * .13;
+      part(new THREE.BoxGeometry(.105, .14, .1), leather, this.soldier, side * .135, .94, .24);
+      part(new THREE.SphereGeometry(.061, 8, 6), leather, this.soldier, side * .25, 1.07, .4);
+    }
+    part(new THREE.SphereGeometry(.036, 7, 5), skin, this.soldier, 0, 1.57, .13).scale.set(1, 1.3, 1.5);
+    const eyes = new THREE.MeshStandardMaterial(
+    {
+      color: 0x302b24,
+      roughness: .8
+    });
+    for (const side of [-1, 1])
+    {
+      const eye = part(new THREE.SphereGeometry(.017, 7, 5), eyes, this.soldier, side * .055, 1.595, .127);
+      eye.scale.y = .6;
+      const brow = part(new THREE.BoxGeometry(.049, .012, .014), leather, this.soldier, side * .055, 1.62, .125);
+      brow.rotation.z = side * .18;
+    }
+    part(new THREE.BoxGeometry(.052, .011, .01), eyes, this.soldier, 0, 1.52, .128);
     this.wound = part(new THREE.SphereGeometry(.19, 7, 5), new THREE.MeshBasicMaterial(
     {
       color: 0x941f18
     }), this.soldier, .06, 1.07, .17);
     this.wound.scale.set(1, 1.2, .3);
-    part(new THREE.BoxGeometry(.33, .4, .17), leather, this.soldier, 0, 1.04, -.22);
+    this.pack = part(new THREE.BoxGeometry(.33, .4, .17), leather, this.soldier, 0, 1.04, -.22);
     this.legs = [-1, 1].map(side =>
     {
       const pivot = new THREE.Group();
@@ -293,14 +208,30 @@ export class TrenchView extends ArenaView
       part(new THREE.CapsuleGeometry(.06, .43, 2, 5), uniform, pivot, 0, -.23, 0, true);
       return pivot;
     });
-    const rifle = part(new THREE.BoxGeometry(.065, .08, .9), leather, this.arms[1], -.03, -.4, .35);
-    rifle.rotation.x = .4;
+    this.rifle = part(new THREE.BoxGeometry(.06, .08, .7), leather, this.soldier, .18, 1.12, .52);
+    this.rifle.rotation.x = .3;
+    const rifleSteel = new THREE.MeshStandardMaterial(
+    {
+      color: 0x384039,
+      metalness: .65,
+      roughness: .4
+    });
+    part(new THREE.CylinderGeometry(.021, .026, .5, 10), rifleSteel, this.rifle, 0, .035, .37).rotation.x = Math.PI / 2;
+    part(new THREE.BoxGeometry(.065, .065, .22), rifleSteel, this.rifle, 0, .025, .01);
+    part(new THREE.BoxGeometry(.015, .035, .018), rifleSteel, this.rifle, 0, .065, .58);
+    this.bayonet = part(new THREE.ConeGeometry(.025, .4, 3), new THREE.MeshStandardMaterial(
+    {
+      color: 0x9caaa8,
+      metalness: .72,
+      roughness: .28
+    }), this.soldier, .18, 1.12, 1.22);
+    this.bayonet.rotation.x = Math.PI / 2;
   }
   buildTurret()
   {
     this.gun = new THREE.Group();
-    this.gun.position.set(.35, -.66, -1.55);
-    this.gun.scale.setScalar(.72);
+    this.gun.position.set(.22, -.37, -1.45);
+    this.gun.scale.setScalar(.66);
     this.camera.add(this.gun);
     const steel = new THREE.MeshStandardMaterial(
     {
@@ -389,16 +320,18 @@ export class TrenchView extends ArenaView
   }
   updateTargets(game, dt, reducedMotion)
   {
+    updateBattlefield(this, game.terrain);
+    updateBiplanes(this, game, dt);
     this.blood.update(dt);
-    const people = [...game.targets, ...game.bodies, ...game.allies.map(ally => (
+    const people = [...game.targets, ...game.bodies, ...(game.killer ? [game.killer] : []), ...game.allies.map(ally => (
     {
       ...ally,
       allied: true,
       position:
       {
         x: ally.position.x,
-        y: 1,
-        z: ally.position.z + .45
+        y: .25,
+        z: ally.position.z + 1.6
       },
       velocity:
       {
@@ -413,7 +346,7 @@ export class TrenchView extends ArenaView
     {
       const dead = target.alive === false,
         gait = Math.sin(target.age * 10 + (target.phase || 0));
-      this.soldier.position.set(target.position.x, target.position.y - 1, target.position.z);
+      this.soldier.position.set(target.position.x, dead || target.allied || target.cinematic ? target.position.y - 1 : game.terrain.height(target.position.x, target.position.z), target.position.z);
       this.soldier.rotation.set(0, Math.atan2(target.velocity.x, target.velocity.z), 0);
       const size = dead ? Math.max(0, Math.min(1, 12 - target.age)) : 1;
       this.soldier.scale.setScalar(size);
@@ -422,20 +355,24 @@ export class TrenchView extends ArenaView
         this.soldier.rotation.z = Math.min(1, target.age * 3) * 1.5;
         this.soldier.position.y += Math.min(1, target.age * 3) * .18;
       }
-      if (target.suppressed) this.soldier.scale.y *= .75;
+      if (target.suppressed || target.fireRemaining > 0) this.soldier.scale.y *= .75;
+      this.rifle.rotation.x = target.allied || target.fireRemaining > 0 || target.cinematic ? 0 : .3;
+      this.rifle.position.z = .52 + (target.cinematic ? target.thrust * .55 : 0);
+      this.bayonet.position.z = 1.22 + (target.cinematic ? target.thrust * .55 : 0);
+      if (target.cinematic) this.soldier.rotation.x = target.thrust * .12;
       this.legs.forEach((leg, i) =>
       {
-        leg.rotation.x = dead || target.allied || reducedMotion ? 0 : gait * (i ? -.65 : .65);
+        leg.rotation.x = dead || target.allied || target.fireRemaining > 0 || reducedMotion ? 0 : gait * (i ? -.65 : .65);
       });
       this.arms.forEach((arm, i) =>
       {
-        arm.rotation.x = target.allied ? -1.1 : -.45 + (dead || reducedMotion ? 0 : gait * (i ? .35 : -.35));
+        arm.rotation.x = target.allied || target.fireRemaining > 0 || target.cinematic ? -1.1 : -.45 + (dead || reducedMotion ? 0 : gait * (i ? .35 : -.35));
       });
       this.soldier.updateMatrixWorld(true);
       for (const part of this.soldierParts)
       {
         const missing = dead && (target.fragment === 0 && (part.node === this.head || part.node === this.helmet) || target.fragment === 1 && part.node.parent === this.arms[0] || target.fragment === 2 && part.node.parent === this.legs[1]);
-        part.instances.setMatrixAt(n, missing || part.node === this.wound && !dead ? this.hiddenPart : part.node.matrixWorld);
+        part.instances.setMatrixAt(n, missing || target.allied && (part.node === this.rifle || part.node.parent === this.rifle || part.node === this.pack || part.node === this.bayonet) || part.node === this.wound && !dead ? this.hiddenPart : part.node.matrixWorld);
         if (part.tinted) part.instances.setColorAt(n, new THREE.Color(target.allied ? 0x48645b : dead ? 0x684538 : 0x585b48));
       }
       n++;
@@ -446,10 +383,16 @@ export class TrenchView extends ArenaView
       part.instances.instanceMatrix.needsUpdate = true;
       if (part.instances.instanceColor) part.instances.instanceColor.needsUpdate = true;
     }
+    this.rifleFlashes.forEach((model, i) =>
+    {
+      const target = game.targets[i];
+      model.visible = Boolean(target?.alive && target.flash > 0);
+      if (target) model.position.set(target.position.x, game.terrain.height(target.position.x, target.position.z) + 1, target.position.z + .7);
+    });
     this.allyFlashes.forEach((model, i) =>
     {
       const ally = game.allies[i];
-      this.friendlyMounts[i].position.set(ally.position.x, 0, ally.position.z + .78);
+      this.friendlyMounts[i].position.set(ally.position.x, -.75, ally.position.z + .78);
       model.visible = ally.flash > 0;
       model.position.set(ally.position.x, ally.position.y, ally.position.z);
     });
@@ -462,6 +405,24 @@ export class TrenchView extends ArenaView
     this.steam.material.opacity = Math.max(0, game.heat - .2) * .28;
     this.steam.material.rotation = this.clock * .1;
     this.steam.position.y = .55 + Math.sin(this.clock * 2) * .04;
+  }
+  render(game, direction, dt, reducedMotion)
+  {
+    const height = TRENCH_CAMERA.y - (game.ducking ? .78 : 0) - (game.killer ? Math.max(0, game.defeatAge - 1.24) * .35 : 0);
+    this.camera.position.y += (height - this.camera.position.y) * Math.min(1, dt * 12);
+    this.gun.position.y = -.37 - (game.killer ? Math.max(0, game.defeatAge - .45) * 1.2 : 0);
+    super.render(game, direction, dt, reducedMotion);
+  }
+  artilleryImpact(position)
+  {
+    this.burst(position, true);
+    for (const cloud of this.smoke)
+    {
+      if (cloud.life <= 0 || cloud.sprite.position.distanceTo(new THREE.Vector3(position.x, position.y, position.z)) > 5) continue;
+      cloud.life = cloud.maxLife = 5 + Math.random() * 4;
+      cloud.size = 4 + Math.random() * 6;
+      cloud.velocity.set((Math.random() - .5) * 2, 2 + Math.random() * 4, (Math.random() - .5) * 2);
+    }
   }
   dust(position)
   {
@@ -481,18 +442,43 @@ export class TrenchView extends ArenaView
   {
     super.clearEffects();
     this.blood.clear();
+    this.camera.position.copy(TRENCH_CAMERA);
+    this.gun.position.y = -.37;
+    for (const model of this.biplaneModels?.values() || []) this.removeModel(model);
+    this.biplaneModels?.clear();
   }
   attackMarkers(game)
   {
     const markers = [];
     for (const ally of game.allies)
     {
-      const p = this.flightDirection.set(ally.position.x, 2.1, ally.position.z).project(this.camera);
+      const p = this.flightDirection.set(ally.position.x, 1.15, ally.position.z + .65).project(this.camera);
       if (Math.abs(p.x) < .93 && Math.abs(p.y) < .9) markers.push(
       {
         x: (p.x + 1) * 50,
         y: (1 - p.y) * 50,
         label: 'FRIENDLY',
+        allied: true
+      });
+    }
+    for (const target of [...game.targets.filter(t => t.alive && t.fireRemaining > 0), ...game.biplanes.filter(p => p.alive && p.muzzleFlash > 0)])
+    {
+      const p = this.flightDirection.copy(target.position).add(new THREE.Vector3(0, target.kind === 'biplane' ? 5 : 2, 0)).project(this.camera);
+      if (p.z > -1 && p.z < 1 && Math.abs(p.x) < .94 && Math.abs(p.y) < .86) markers.push(
+      {
+        x: (p.x + 1) * 50,
+        y: (1 - p.y) * 50,
+        label: target.kind === 'biplane' ? 'STRAFING' : 'RIFLEMAN'
+      });
+    }
+    for (const shell of game.artillery)
+    {
+      const p = this.flightDirection.copy(shell.impact).project(this.camera);
+      if (p.z > -1 && p.z < 1 && Math.abs(p.x) < .9 && Math.abs(p.y) < .82) markers.push(
+      {
+        x: (p.x + 1) * 50,
+        y: (1 - p.y) * 50,
+        label: 'FRIENDLY ARTILLERY',
         allied: true
       });
     }

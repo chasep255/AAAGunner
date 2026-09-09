@@ -61,11 +61,11 @@ export const MODES = {
   trench:
   {
     label: 'Trench',
-    description: 'Hold the trench through three infantry assaults. Work the water-cooled Maxim, reload its belt, and stop the charge before the line is overrun.',
+    description: 'Hold the trench with the Maxim and friendly artillery. Stop the charge, take cover from riflemen and biplanes, and keep the line from being overrun.',
     weapon: 'MAXIM',
     ammo: 'WATER COOLED · 250-ROUND BELT',
     range: '450 M',
-    healthLabel: 'LINE',
+    healthLabel: 'HEALTH',
     secondaryLabel: 'AMMUNITION',
     action: 'Reload belt',
     actionHint: 'Reload the Maxim (R or right-click)',
@@ -73,7 +73,7 @@ export const MODES = {
     stat: 'STOPPED',
     fact: '250 ROUNDS',
     location: 'NO MAN’S LAND',
-    defeatTitle: 'Overrun',
+    defeatTitle: 'Position lost',
     gunSound: 'maxim',
     secondary(game)
     {
@@ -81,6 +81,7 @@ export const MODES = {
     },
     defeat(game)
     {
+      if (game.endReason === 'killed') return 'You were killed at the gun. Hold C to duck behind the parapet when riflemen or biplanes fire, then return fire between bursts.';
       return `The line was overrun after ${Math.floor(game.time)} seconds. ${game.breaches} attackers reached the trench. Prioritize the closest soldiers and reload between charges.`;
     },
     success(game)
@@ -99,7 +100,7 @@ export const MODES = {
       const view = new TrenchView(canvas);
       try
       {
-        const game = new TrenchGame(physics, Math.random, d => view.flightHalfWidth(d), (b, d) => view.muzzlePosition(b, d));
+        const game = new TrenchGame(physics, Math.random, d => view.flightHalfWidth(d), (b, d) => view.muzzlePosition(b, d), view.terrain);
         return {
           view,
           game

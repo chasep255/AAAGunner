@@ -1,5 +1,22 @@
 import
 {
+  advanceBiplanes
+}
+from './biplanes.js';
+import
+{
+  BattlefieldTerrain,
+  TRENCH_CAMERA,
+  ALLIED_POSITIONS
+}
+from './terrain.js';
+export
+{
+  baseHeight as trenchHeight
+}
+from './terrain.js';
+import
+{
   ProjectilePool,
   ROUND_SECONDS,
   sweptHit,
@@ -24,7 +41,7 @@ export const TRENCH_GUN = Object.freeze(
 });
 export const BELT_SIZE = 250;
 export const RELOAD_TIME = 3.5;
-export const BREACH_Z = -10;
+export const BREACH_Z = .8;
 export const MAX_INFANTRY = 96;
 export const TRENCH_LEVELS = {
   relaxed:
@@ -53,25 +70,17 @@ export const TRENCH_LEVELS = {
   }
 };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const origin = {
-  x: 0,
-  y: 2.2,
-  z: 5
-};
-export function trenchHeight(x, z)
-{
-  if (z > -18) return 0;
-  return .22 * Math.sin(x * .11) * Math.sin(z * .065) + .15 * Math.sin(z * .19 + x * .07);
-}
+const origin = TRENCH_CAMERA;
 export class TrenchGame
 {
   constructor(physics, random = Math.random, halfWidth = d => d * .5, muzzlePosition = () => (
   {
     x: .4,
-    y: 1.8,
-    z: 1
-  }))
+    y: .65,
+    z: 3
+  }), terrain = new BattlefieldTerrain())
   {
+    this.terrain = terrain;
     this.audioProfile = 'trench';
     this.random = random;
     this.halfWidth = halfWidth;
@@ -93,6 +102,7 @@ export class TrenchGame
     this.difficulty = TRENCH_LEVELS[difficulty] ? difficulty : 'arcade';
     this.tuning = TRENCH_LEVELS[this.difficulty];
     this.projectiles.clear();
+    this.terrain.reset();
     this.targets = [];
     this.bodies = [];
     this.enemyShots = [];
@@ -109,6 +119,13 @@ export class TrenchGame
     this.hits = 0;
     this.shots = 0;
     this.breaches = 0;
+    this.crewHealth = 75;
+    this.lastHit = -10;
+    this.suppression = 0;
+    this.ducking = false;
+    this.biplanes = [];
+    this.aircraftKills = 0;
+    this.raidClock = 38;
     this.combo = 0;
     this.bestCombo = 0;
     this.lastKill = -10;
@@ -122,15 +139,16 @@ export class TrenchGame
     this.spawnClock = this.tuning.interval;
     this.artilleryClock = 3;
     this.endReason = null;
+    this.killer = null;
+    this.defeatAge = 0;
+    this.resumeState = null;
     this.state = 'playing';
-    this.allies = [-1, 1].map((side, i) => (
+    this.allies = ALLIED_POSITIONS.map((position, i) => (
     {
       id: 'ally' + i,
       position:
       {
-        x: side * Math.min(7, this.halfWidth(17) * .7),
-        y: 1.4,
-        z: -11
+        ...position
       },
       clock: 1 + i * .7,
       flash: 0,
@@ -149,15 +167,15 @@ export class TrenchGame
   }
   get healthPercent()
   {
-    return Math.max(0, 100 * (1 - this.breaches / this.tuning.breaches));
+    return Math.max(0, this.crewHealth / 75 * 100);
   }
   get health()
   {
-    return this.healthPercent;
+    return this.crewHealth;
   }
   get regenerating()
   {
-    return false;
+    return this.crewHealth < 75 && this.time - this.lastHit > 7;
   }
   get accuracy()
   {
@@ -180,7 +198,7 @@ export class TrenchGame
       const x = clamp(center + (this.random() - .5) * .5, -.75, .75) * this.halfWidth(distance);
       const position = {
         x,
-        y: trenchHeight(x, -distance) + 1,
+        y: this.terrain.height(x, -distance) + 1,
         z: -distance
       };
       this.targets.push(
@@ -206,7 +224,10 @@ export class TrenchGame
         radius: .58,
         health: 1,
         suppressed: 0,
-        flash: 0
+        flash: 0,
+        fireRemaining: 0,
+        fireCooldown: 3 + this.random() * 12,
+        rifleClock: 0
       });
     }
   }
@@ -280,7 +301,7 @@ export class TrenchGame
   {
     let best = null,
       alignment = .97;
-    for (const t of this.targets)
+    for (const t of [...this.targets, ...this.biplanes])
     {
       const delta = {
         x: t.position.x - origin.x,
@@ -328,7 +349,7 @@ export class TrenchGame
     };
     const aimLength = Math.hypot(direction.x, direction.y, direction.z);
     for (const axis of ['x', 'y', 'z']) direction[axis] /= aimLength;
-    const spread = .0025 + this.heat * .0025,
+    const spread = .0025 + this.heat * .0025 + this.suppression * .009,
       angle = this.random() * Math.PI * 2,
       radius = Math.sqrt(this.random()) * spread;
     const rightLength = Math.hypot(direction.x, direction.z);
@@ -399,6 +420,7 @@ export class TrenchGame
         age: 0,
         launched: true,
         alive: true,
+        side: 'friendly',
         position:
         {
           ...ally.position
@@ -427,6 +449,9 @@ export class TrenchGame
         }
       });
     }
+  }
+  advanceRounds(dt)
+  {
     for (const shot of this.enemyShots)
     {
       Object.assign(shot.previous, shot.position);
@@ -436,7 +461,7 @@ export class TrenchGame
       let victim = null,
         first = Infinity;
       for (const target of this.targets)
-        if (target.alive)
+        if (shot.side !== 'enemy' && target.alive)
         {
           const t = sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
           if (t !== null && t < first)
@@ -450,30 +475,180 @@ export class TrenchGame
         this.stopTarget(victim, 'ally');
         shot.alive = false;
       }
-      if (shot.age > 1.1 || shot.position.y < trenchHeight(shot.position.x, shot.position.z)) shot.alive = false;
+      if (shot.side === 'enemy')
+      {
+        // Sandbags and the earth lip protect low rounds; the sight opening is exposed.
+        if (shot.previous.z < .8 && shot.position.z >= .8)
+        {
+          const t = (.8 - shot.previous.z) / (shot.position.z - shot.previous.z);
+          const x = shot.previous.x + (shot.position.x - shot.previous.x) * t;
+          const y = shot.previous.y + (shot.position.y - shot.previous.y) * t;
+          if (Math.abs(x) < 27 && y < .48)
+          {
+            shot.alive = false;
+            this.events.push(
+            {
+              type: 'groundHit',
+              position:
+              {
+                x,
+                y,
+                z: .8
+              }
+            });
+          }
+        }
+        const player = {
+          x: origin.x,
+          y: origin.y - (this.ducking ? .78 : 0),
+          z: origin.z
+        };
+        if (shot.alive && sweptHit(shot.previous, shot.position, player, player, .34) !== null)
+        {
+          this.crewHealth = Math.max(0, this.crewHealth - shot.damage);
+          this.lastHit = this.time;
+          this.suppression = Math.min(1, this.suppression + .4);
+          shot.alive = false;
+          this.events.push(
+          {
+            type: 'rifleHit',
+            position:
+            {
+              ...player
+            }
+          });
+        }
+        if (shot.alive && !shot.passed && shot.previous.z < origin.z && shot.position.z >= origin.z)
+        {
+          shot.passed = true;
+          const t = (origin.z - shot.previous.z) / (shot.position.z - shot.previous.z);
+          const x = shot.previous.x + (shot.position.x - shot.previous.x) * t,
+            y = shot.previous.y + (shot.position.y - shot.previous.y) * t;
+          if (Math.hypot(x - origin.x, y - origin.y) < 3.4)
+          {
+            this.suppression = Math.min(1, this.suppression + (this.ducking ? .04 : .18));
+            this.events.push(
+            {
+              type: 'nearMiss',
+              position:
+              {
+                x,
+                y,
+                z: origin.z
+              }
+            });
+          }
+        }
+      }
+      if (shot.age > 1.3 || shot.position.y < this.terrain.height(shot.position.x, shot.position.z)) shot.alive = false;
     }
     this.enemyShots = this.enemyShots.filter(s => s.alive);
+  }
+  advanceRiflemen(dt)
+  {
+    let active = this.targets.filter(t => t.alive && t.fireRemaining > 0).length;
+    const limit = this.difficulty === 'relaxed' ? 2 : this.difficulty === 'frenzy' ? 4 : 3;
+    for (const target of this.targets)
+    {
+      target.flash = Math.max(0, target.flash - dt);
+      target.fireCooldown -= dt;
+      const visible = Math.abs(target.position.x) < this.halfWidth(-target.position.z) * .76;
+      if (!target.alive || target.suppressed || !visible)
+      {
+        target.fireRemaining = 0;
+        continue;
+      }
+      if (target.fireRemaining <= 0 && active < limit && target.fireCooldown <= 0 && target.position.z > -175 && target.position.z < -28)
+      {
+        target.fireRemaining = 3 + this.random() * 2;
+        target.rifleClock = .6 + this.random() * .5;
+        target.fireCooldown = 10 + this.random() * 12;
+        active++;
+      }
+      if (target.fireRemaining <= 0) continue;
+      target.fireRemaining = Math.max(0, target.fireRemaining - dt);
+      target.rifleClock -= dt;
+      if (target.rifleClock > 0 || this.enemyShots.length >= MAX_ENEMY_SHOTS) continue;
+      target.rifleClock = 1.5 + this.random() * .8;
+      const start = {
+        x: target.position.x,
+        y: this.terrain.height(target.position.x, target.position.z) + 1,
+        z: target.position.z + .35
+      };
+      const distance = Math.hypot(origin.x - start.x, origin.z - start.z);
+      const aim = {
+        x: origin.x + (this.random() - .5) * 3.8,
+        y: origin.y + (this.random() - .5) * 2.2,
+        z: origin.z
+      };
+      const velocity = {
+        x: aim.x - start.x,
+        y: aim.y - start.y,
+        z: aim.z - start.z
+      };
+      const length = Math.hypot(velocity.x, velocity.y, velocity.z);
+      for (const axis of ['x', 'y', 'z']) velocity[axis] *= 560 / length;
+      velocity.y += 4.905 * distance / 560;
+      this.enemyShots.push(
+      {
+        id: ++this.nextId,
+        age: 0,
+        alive: true,
+        launched: true,
+        side: 'enemy',
+        source: 'rifle',
+        damage: this.difficulty === 'relaxed' ? 7 : 9,
+        position: start,
+        previous:
+        {
+          ...start
+        },
+        velocity
+      });
+      target.flash = .12;
+      this.events.push(
+      {
+        type: 'rifleShot',
+        position:
+        {
+          ...start
+        }
+      });
+    }
   }
   advanceArtillery(dt)
   {
     this.artilleryClock -= dt;
     if (this.artilleryClock <= 0 && this.artillery.length < 6)
     {
-      const target = this.targets[Math.floor(this.random() * this.targets.length)];
-      const impact = target && this.random() < .45 ?
+      const candidates = this.targets.filter(target => target.alive && target.position.z < -48);
+      let target = null,
+        priority = -Infinity;
+      for (const candidate of candidates)
       {
-        x: target.position.x + (this.random() - .5) * 25,
-        z: target.position.z + 8
+        const neighbors = candidates.filter(other => Math.hypot(other.position.x - candidate.position.x, other.position.z - candidate.position.z) < 18).length;
+        const score = neighbors + (320 + candidate.position.z) / 160 + this.random() * 2;
+        if (score > priority)
+        {
+          priority = score;
+          target = candidate;
+        }
+      }
+      const duration = 3.1 + this.random() * .8;
+      const impact = target ?
+      {
+        x: target.position.x + target.velocity.x * duration + (this.random() - .5) * 11,
+        z: Math.min(-45, target.position.z + target.velocity.z * duration + (this.random() - .5) * 12)
       } :
       {
-        x: (this.random() - .5) * 110,
-        z: -28 - this.random() * 240
+        x: (this.random() - .5) * 90,
+        z: -140 - this.random() * 140
       };
-      impact.y = trenchHeight(impact.x, impact.z);
+      impact.y = this.terrain.height(impact.x, impact.z);
       const start = {
-        x: impact.x + (this.random() - .5) * 220,
-        y: 90,
-        z: impact.z - 180
+        x: (this.random() - .5) * 65,
+        y: 9,
+        z: 120
       };
       this.artillery.push(
       {
@@ -485,9 +660,10 @@ export class TrenchGame
           ...start
         },
         age: 0,
-        duration: 2 + this.random() * 1.5
+        duration,
+        friendly: true
       });
-      this.artilleryClock = 2.7 + this.random() * 2;
+      this.artilleryClock = 5.2 + this.random() * 2.8;
       this.events.push(
       {
         type: 'artilleryLaunch',
@@ -502,11 +678,14 @@ export class TrenchGame
       shell.age += dt;
       const t = Math.min(1, shell.age / shell.duration);
       for (const axis of ['x', 'y', 'z']) shell.position[axis] = shell.start[axis] + (shell.impact[axis] - shell.start[axis]) * t;
-      shell.position.y += Math.sin(t * Math.PI) * 30;
+      shell.position.y += Math.sin(t * Math.PI) * 110;
       if (t < 1) continue;
+      const crater = this.terrain.crater(shell.impact.x, shell.impact.z, 5 + this.random(), 1.05 + this.random() * .3);
       this.events.push(
       {
         type: 'artilleryImpact',
+        crater,
+        friendly: true,
         position:
         {
           ...shell.impact
@@ -515,15 +694,34 @@ export class TrenchGame
       for (const target of this.targets)
       {
         const distance = Math.hypot(target.position.x - shell.impact.x, target.position.z - shell.impact.z);
-        if (distance < 6) this.stopTarget(target, 'artillery');
-        else if (distance < 18) target.suppressed = 1.4;
+        if (distance < 7) this.stopTarget(target, 'artillery');
+        else if (distance < 20) target.suppressed = 2.2;
       }
     }
     this.artillery = this.artillery.filter(s => s.age < s.duration);
   }
   update(dt, direction, firing)
   {
-    if (this.state !== 'playing' || !Number.isFinite(dt) || dt <= 0) return;
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    if (this.state === 'overrun')
+    {
+      const previous = this.defeatAge;
+      this.defeatAge += dt;
+      const approach = Math.min(1, this.defeatAge / 1.05);
+      const ease = approach * approach * (3 - 2 * approach);
+      this.killer.position.x = this.killer.start.x * (1 - ease);
+      this.killer.position.z = this.killer.start.z + (4.45 - this.killer.start.z) * ease;
+      this.killer.position.y = 1 - .75 * ease + Math.sin(approach * Math.PI) * .7;
+      this.killer.thrust = Math.max(0, Math.sin(Math.min(1, Math.max(0, (this.defeatAge - 1.05) / .45)) * Math.PI));
+      this.killer.age = this.defeatAge;
+      if (previous < 1.24 && this.defeatAge >= 1.24) this.events.push(
+      {
+        type: 'bayonetHit'
+      });
+      if (this.defeatAge >= 2.15) this.finish('overrun');
+      return;
+    }
+    if (this.state !== 'playing') return;
     dt = Math.min(dt, this.remaining);
     this.time += dt;
     if (this.time - this.lastKill > 5) this.combo = 0;
@@ -537,7 +735,9 @@ export class TrenchGame
       });
     }
     this.reloading = this.reloadRemaining > 0;
-    const canFire = firing && !this.overheated && !this.reloadRemaining && this.belt > 0;
+    this.suppression = Math.max(0, this.suppression - (this.ducking ? .42 : .16) * dt);
+    if (this.regenerating) this.crewHealth = Math.min(75, this.crewHealth + dt * 2);
+    const canFire = firing && !this.ducking && !this.overheated && !this.reloadRemaining && this.belt > 0;
     this.spool = clamp(this.spool + (canFire ? 6 : -8) * dt, 0, 1);
     this.heat = Math.max(0, this.heat - (canFire ? .008 : .11) * dt);
     if (this.overheated && this.heat < .35) this.overheated = false;
@@ -556,21 +756,23 @@ export class TrenchGame
       Object.assign(target.previous, target.position);
       target.age += dt;
       target.suppressed = Math.max(0, target.suppressed - dt);
-      const speed = target.speed * (target.suppressed ? .45 : 1);
+      const speed = target.fireRemaining > 0 ? 0 : target.speed * (target.suppressed ? .45 : 1);
       const desiredX = target.lane + Math.sin(target.age * 1.2 + target.phase) * Math.min(1.4, -target.position.z * .01);
       target.position.x += clamp(desiredX - target.position.x, -speed * .65 * dt, speed * .65 * dt);
       target.position.z += speed * dt;
-      target.position.y = trenchHeight(target.position.x, target.position.z) + 1;
+      const standingHeight = this.terrain.height(target.position.x, target.position.z) + (target.fireRemaining > 0 ? .75 : 1);
+      target.position.y += (standingHeight - target.position.y) * Math.min(1, dt * 10);
       for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
     }
+    advanceBiplanes(this, dt);
     this.projectiles.advance(dt);
     for (const shot of this.projectiles.slots)
     {
       if (!shot.alive) continue;
       let victim = null,
         first = Infinity;
-      const ground = trenchHeight(shot.position.x, shot.position.z);
-      for (const target of this.targets)
+      const ground = this.terrain.height(shot.position.x, shot.position.z);
+      for (const target of [...this.targets, ...this.biplanes])
         if (target.alive)
         {
           const t = sweptHit(shot.previous, shot.position, target.previous, target.position, target.radius);
@@ -584,7 +786,31 @@ export class TrenchGame
       {
         shot.alive = false;
         this.hits++;
-        this.stopTarget(victim);
+        if (victim.kind === 'biplane')
+        {
+          victim.health--;
+          if (victim.health <= 0)
+          {
+            victim.alive = false;
+            this.aircraftKills++;
+            this.score += 150;
+            this.events.push(
+            {
+              type: 'destroyed',
+              kind: 'biplane',
+              position:
+              {
+                ...victim.position
+              },
+              velocity:
+              {
+                ...victim.velocity
+              },
+              points: 150
+            });
+          }
+        }
+        else this.stopTarget(victim);
         this.events.push(
         {
           type: 'hit',
@@ -611,7 +837,14 @@ export class TrenchGame
       else if (shot.age > TRENCH_GUN.lifetime || Math.hypot(shot.position.x, shot.position.z) > TRENCH_GUN.range) shot.alive = false;
     }
     this.advanceAllies(dt);
+    this.advanceRiflemen(dt);
+    this.advanceRounds(dt);
     this.advanceArtillery(dt);
+    if (this.crewHealth <= 0)
+    {
+      this.finish('killed');
+      return;
+    }
     for (const target of this.targets)
       if (target.alive && target.position.z >= BREACH_Z)
       {
@@ -627,12 +860,16 @@ export class TrenchGame
         });
         if (this.breaches >= this.tuning.breaches)
         {
-          this.finish('overrun');
+          this.beginOverrun(target);
           return;
         }
       }
     this.targets = this.targets.filter(t => t.alive);
-    for (const body of this.bodies) body.age += dt;
+    for (const body of this.bodies)
+    {
+      body.age += dt;
+      body.position.y += (this.terrain.height(body.position.x, body.position.z) + 1 - body.position.y) * Math.min(1, dt * 8);
+    }
     this.bodies = this.bodies.filter(b => b.age < 12);
     this.spawnClock -= dt;
     if (this.spawnClock <= 0)
@@ -642,10 +879,43 @@ export class TrenchGame
     }
     if (this.remaining <= 0) this.finish('survived');
   }
+  beginOverrun(target)
+  {
+    this.clearCombat();
+    this.state = 'overrun';
+    this.defeatAge = 0;
+    this.killer = {
+      ...target,
+      alive: true,
+      cinematic: true,
+      start:
+      {
+        ...target.position
+      },
+      position:
+      {
+        ...target.position
+      },
+      velocity:
+      {
+        x: 0,
+        y: 0,
+        z: 1
+      },
+      age: 0,
+      thrust: 0
+    };
+    this.targets = this.targets.filter(item => item.id !== target.id);
+    this.events.push(
+    {
+      type: 'overrun'
+    });
+  }
   pause()
   {
-    if (this.state === 'playing')
+    if (this.state === 'playing' || this.state === 'overrun')
     {
+      this.resumeState = this.state;
       this.state = 'paused';
       this.spool = 0;
       this.shotClock = 0;
@@ -653,19 +923,20 @@ export class TrenchGame
   }
   resume()
   {
-    if (this.state === 'paused') this.state = 'playing';
+    if (this.state === 'paused') this.state = this.resumeState || 'playing';
   }
   clearCombat()
   {
     this.projectiles.clear();
     this.enemyShots.length = 0;
     this.artillery.length = 0;
+    this.ducking = false;
     this.spool = 0;
     for (const ally of this.allies) ally.flash = 0;
   }
   finish(reason)
   {
-    if (this.state !== 'playing') return;
+    if (!['playing', 'overrun'].includes(this.state)) return;
     this.state = 'ended';
     this.endReason = reason;
     this.clearCombat();
@@ -676,7 +947,7 @@ export class TrenchGame
   }
   stop()
   {
-    if (!['playing', 'paused'].includes(this.state)) return;
+    if (!['playing', 'paused', 'overrun'].includes(this.state)) return;
     this.state = 'stopped';
     this.clearCombat();
     this.events.length = 0;
@@ -688,6 +959,7 @@ export class TrenchGame
     this.bodies.length = 0;
     this.enemyShots.length = 0;
     this.artillery.length = 0;
+    this.biplanes.length = 0;
     this.events.length = 0;
   }
 }

@@ -208,3 +208,11 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
 .attack-indicators .ally-marker { color: #c4e6d1; border-color: #80b59a; background: #163d35bd; font-size: 8px; }
 .attack-indicators .ally-marker::after { border-top-color: #80b59a; }
 #modeThreat { display: inline; color: inherit; font-size: inherit; }
+
+.trench-defense {margin-top:8px; padding:10px 12px; background:var(--glass); border:1px solid var(--line); font:9px 'Courier New',monospace; line-height:1.55;}
+.trench-defense strong,.trench-defense span {display:block;}
+#supportStatus {color:#b8d8bc; margin-top:6px;}
+#suppressionStatus {color:#e6c18a; margin-top:6px;}
+#coverBtn[aria-pressed="true"] {background:#405a42;}
+
+.arena.bayoneted .damage-overlay {z-index:2; opacity:1; transition:opacity .05s; box-shadow:inset 0 0 130px 55px #580505e0; background:radial-gradient(ellipse at 47% 77%,#9b1012b8 0 8%,transparent 9%),radial-gradient(ellipse at 65% 66%,#87080abd 0 5%,transparent 6%),radial-gradient(ellipse at 27% 62%,#720506b8 0 4%,transparent 5%),radial-gradient(ellipse at 39% 44%,#92080aaa 0 1%,transparent 2%),radial-gradient(ellipse at 68% 31%,#800706bb 0 1.5%,transparent 2%),linear-gradient(0deg,#620508b0,transparent 70%);}

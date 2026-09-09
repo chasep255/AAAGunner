@@ -14,7 +14,7 @@ import
 }
 from './audio.js';
 const ui = Object.fromEntries([
-  'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
+  'trenchDefense', 'lineStatus', 'supportStatus', 'coverBtn', 'suppressionStatus', 'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
   'bombWarning', 'bombTime', 'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
   'heatWarning', 'gunStatus', 'heatPercent', 'heatMeter', 'heatFill', 'downed',
@@ -54,6 +54,7 @@ function clearInput()
 {
   pointerFiring = false;
   spaceFiring = false;
+  if (game && modeKey === 'trench') game.ducking = false;
   if (activePointer !== null && ui.skyCanvas.hasPointerCapture(activePointer)) ui.skyCanvas.releasePointerCapture(activePointer);
   activePointer = null;
 }
@@ -132,6 +133,7 @@ function showPanel(mode)
 function configureMode()
 {
   ui.arena.dataset.mode = modeKey;
+  ui.arena.classList.remove('bayoneted');
   document.getElementById('modeEyebrow').textContent = modeKey === 'trench' ? 'TRENCH DEFENSE' : 'COASTAL DEFENSE';
   ui.weaponLabel.textContent = modeSpec.weapon;
   ui.gunAmmo.textContent = modeSpec.ammo;
@@ -147,10 +149,12 @@ function configureMode()
   ui.modeFact.innerHTML = `<strong>${number}</strong> ${label.join(' ')}`;
   ui.modeLocation.textContent = modeSpec.location;
   ui.modeThreat.textContent = modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS';
-  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / R</kbd> RELOAD' : '<kbd>RMB / M</kbd> MISSILE';
+  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / R</kbd> RELOAD · <kbd>C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
   ui.coastHelp.hidden = modeKey !== 'coast';
   ui.trenchHelp.hidden = modeKey !== 'trench';
-  ui.healthMeter.setAttribute('aria-label', modeKey === 'trench' ? 'Trench line strength' : 'Player health');
+  ui.trenchDefense.hidden = modeKey !== 'trench';
+  ui.coverBtn.hidden = modeKey !== 'trench';
+  ui.healthMeter.setAttribute('aria-label', 'Player health');
   ui.skyCanvas.setAttribute('aria-label', `Move the mouse to aim. Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
   ui.heatWarning.firstChild.textContent = modeKey === 'trench' ? 'WATER JACKET HOT ' : 'BARRELS HOT ';
   ui.heatWarning.querySelector('span').textContent = modeKey === 'trench' ? 'Let it cool' : 'Let them cool';
@@ -207,7 +211,7 @@ async function selectMode(key)
 function pause()
 {
   clearInput();
-  if (game?.state !== 'playing') return;
+  if (!['playing', 'overrun'].includes(game?.state)) return;
   game.pause();
   accumulator = 0;
   audio.update(0);
@@ -219,6 +223,7 @@ async function stopRound()
   if (!game || !view) return;
   clearInput();
   game.stop();
+  ui.arena.classList.remove('bayoneted');
   accumulator = 0;
   audio.update(0);
   view.clearEffects();
@@ -244,6 +249,7 @@ function beginRound(resume = false)
     else
     {
       game.start(ui.difficulty.value);
+      ui.arena.classList.remove('bayoneted');
       view.clearEffects();
       audio.clear();
       aimX = aimY = 0;
@@ -380,17 +386,22 @@ function updateHud()
   driveBars.forEach((bar, i) => bar.classList.toggle('active', game.spool > i / 8));
   if (modeKey === 'trench')
   {
-    ui.healthValue.textContent = `${game.tuning.breaches - game.breaches}/${game.tuning.breaches}`;
+    ui.lineStatus.textContent = `LINE ${game.tuning.breaches-game.breaches}/${game.tuning.breaches} · ${game.breaches} BREACHES`;
+    ui.supportStatus.textContent = `FRIENDLY BATTERY · ${game.artillery.length ? 'FIRING' : 'LOADING'} · ${game.artilleryKills} STOPS`;
+    ui.suppressionStatus.textContent = game.ducking ? 'IN COVER' : game.suppression > .25 ? `SUPPRESSED ${Math.round(game.suppression*100)}% · HOLD C` : 'HOLD C TO TAKE COVER';
+    ui.coverBtn.textContent = game.ducking ? 'Leave cover' : 'Take cover';
+    ui.coverBtn.setAttribute('aria-pressed', String(game.ducking));
+    ui.coverBtn.disabled = game.state !== 'playing';
     const distance = game.nearestDistance;
-    ui.healthStatus.textContent = distance === null ? 'LINE CLEAR' : `NEAREST ${Math.ceil(distance)} M · ${game.breaches} BREACHES`;
+    ui.healthStatus.textContent = game.regenerating ? 'RECOVERING' : `NEAREST ${Math.ceil(distance || 0)} M`;
     ui.healthStatus.parentElement.classList.toggle('incoming', distance !== null && distance < 40);
-    ui.healthStatus.parentElement.classList.remove('recovering');
+    ui.healthStatus.parentElement.classList.toggle('recovering', game.regenerating);
     ui.bombWarning.hidden = game.state !== 'playing' || distance === null || distance >= 40;
     ui.bombTime.textContent = `STOP THE CHARGE · ${Math.ceil(distance || 0)} M`;
     ui.missileStatus.textContent = `${game.belt}/250 · ${game.reloadRemaining ? 'RELOADING' : 'READY'}`;
     ui.missileReload.textContent = game.reloadRemaining ? `READY IN ${game.reloadRemaining.toFixed(1)}s` : '250-ROUND BELT';
     ui.missileBtn.disabled = game.state !== 'playing' || Boolean(game.reloadRemaining) || game.belt === 250;
-    ui.gunStatus.textContent = game.reloadRemaining ? 'RELOADING' : game.overheated ? 'COOLING' : game.spool > .2 ? 'FIRING' : 'READY';
+    ui.gunStatus.textContent = game.ducking ? 'IN COVER' : game.suppression > .35 ? 'SUPPRESSED' : game.reloadRemaining ? 'RELOADING' : game.overheated ? 'COOLING' : game.spool > .2 ? 'FIRING' : 'READY';
   }
 }
 
@@ -402,6 +413,18 @@ for (const button of [ui.panelStartBtn]) button.addEventListener('click', () =>
     return;
   }
   beginRound(panelMode === 'paused');
+});
+ui.coverBtn.addEventListener('click', () =>
+{
+  if (game?.state === 'playing' && modeKey === 'trench')
+  {
+    game.ducking = !game.ducking;
+    updateHud();
+    ui.skyCanvas.focus(
+    {
+      preventScroll: true
+    });
+  }
 });
 ui.modeSelect.addEventListener('change', () => selectMode(ui.modeSelect.value));
 ui.restartBtn.addEventListener('click', () => beginRound());
@@ -514,6 +537,11 @@ window.addEventListener('keydown', event =>
     spaceFiring = true;
     event.preventDefault();
   }
+  if (event.code === 'KeyC' && modeKey === 'trench' && game.state === 'playing')
+  {
+    game.ducking = true;
+    event.preventDefault();
+  }
   if (event.repeat) return;
   if (event.code === 'KeyM' && modeKey === 'coast')
   {
@@ -522,7 +550,7 @@ window.addEventListener('keydown', event =>
   }
   if (event.code === 'KeyP' || event.code === 'Escape')
   {
-    if (game.state === 'playing') pause();
+    if (game.state === 'playing' || game.state === 'overrun') pause();
     else if (game.state === 'paused') beginRound(true);
     event.preventDefault();
   }
@@ -536,6 +564,7 @@ window.addEventListener('keydown', event =>
 window.addEventListener('keyup', event =>
 {
   if (event.code === 'Space') spaceFiring = false;
+  if (event.code === 'KeyC' && modeKey === 'trench' && game) game.ducking = false;
 });
 window.addEventListener('blur', pause);
 document.addEventListener('visibilitychange', () =>
@@ -576,10 +605,10 @@ try
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
       lastFrame = timestamp;
       const direction = view.directionAt(aimX, aimY);
-      if (game.state === 'playing')
+      if (game.state === 'playing' || game.state === 'overrun')
       {
         accumulator += elapsed;
-        while (accumulator >= STEP && game.state === 'playing')
+        while (accumulator >= STEP && ['playing', 'overrun'].includes(game.state))
         {
           game.update(STEP, direction, pointerFiring || spaceFiring);
           accumulator -= STEP;
@@ -673,8 +702,43 @@ try
         if (event.type === 'artilleryLaunch') audio.event('whistle', event.position, game.time);
         if (event.type === 'artilleryImpact')
         {
-          view.burst(event.position, true);
+          view.artilleryImpact(event.position);
           audio.event('explosion', event.position, game.time);
+        }
+        if (event.type === 'overrun')
+        {
+          clearInput();
+          ui.toast.textContent = 'ENEMY IN THE TRENCH';
+          toastUntil = timestamp + 2100;
+        }
+        if (event.type === 'bayonetHit')
+        {
+          ui.arena.classList.add('bayoneted');
+          audio.event('bayonet', null, game.time);
+          view.blood.burst(
+          {
+            x: 0,
+            y: .45,
+            z: 4.9
+          }, 'bayonet',
+          {
+            x: 0,
+            y: 1,
+            z: .5
+          });
+        }
+        if (event.type === 'rifleShot') audio.event('rifle', event.position, game.time);
+        if (event.type === 'planeFire') audio.event('enemy', event.position, game.time);
+        if (event.type === 'nearMiss') audio.event('hit', event.position, game.time);
+        if (event.type === 'rifleHit')
+        {
+          damageUntil = timestamp + 400;
+          audio.event('impact', event.position, game.time);
+        }
+        if (event.type === 'airRaid')
+        {
+          ui.toast.textContent = 'BIPLANES INBOUND';
+          toastUntil = timestamp + 2200;
         }
         if (event.type === 'reload')
         {
@@ -711,7 +775,7 @@ try
         updateHud();
         hudClock = 0;
       }
-      view.render(game, direction, game.state === 'playing' || game.state === 'ready' ? elapsed : 0, reducedMotion.matches);
+      view.render(game, direction, ['playing', 'ready', 'overrun'].includes(game.state) ? elapsed : 0, reducedMotion.matches);
       frameId = requestAnimationFrame(tick);
     }
     catch (error)

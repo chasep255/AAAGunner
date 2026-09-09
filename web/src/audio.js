@@ -5,6 +5,8 @@ export function synthesizeSound(kind, sampleRate = 44100)
   const duration = {
     gun: .18,
     maxim: .28,
+    rifle: .42,
+    bayonet: 1.1,
     whistle: 2,
     reload: .65,
     enemy: 1.15,
@@ -28,7 +30,7 @@ export function synthesizeSound(kind, sampleRate = 44100)
     low += .018 * (noise - low);
     mid += .19 * (noise - mid);
     let value = 0;
-    if (kind === 'gun' || kind === 'enemy' || kind === 'maxim')
+    if (kind === 'gun' || kind === 'enemy' || kind === 'maxim' || kind === 'rifle')
     {
       const shot = kind === 'enemy' ? t % .075 : t;
       const gate = kind === 'enemy' && t > .85 ? Math.exp(-(t - .85) * 16) : 1;
@@ -51,6 +53,7 @@ export function synthesizeSound(kind, sampleRate = 44100)
     if (kind === 'maxim') value += Math.sin(2 * Math.PI * 82 * t) * Math.exp(-t * 23) * .5 + mid * Math.exp(-Math.max(0, t - .065) * 40) * .25;
     if (kind === 'whistle') value = (Math.sin(2 * Math.PI * (1550 * t - 250 * t * t)) * .16 + mid * .3) * Math.sin(Math.PI * t / 2);
     if (kind === 'reload') value = (noise - mid) * (Math.exp(-t * 65) + Math.exp(-Math.abs(t - .32) * 100) * .65) * .5;
+    if (kind === 'bayonet') value = low * 6 * Math.exp(-t * 8) + mid * 1.6 * Math.exp(-t * 7) + Math.sin(2 * Math.PI * (95 * t - 22 * t * t)) * Math.exp(-t * 13) * .75 + (noise - mid) * Math.exp(-Math.abs(t - .16) * 45) * .4;
     if (kind === 'missile') value = (mid * 2.2 + low * 2.2) * Math.min(1, t * 90) * Math.exp(-t * 2.7) + Math.sin(2 * Math.PI * 58 * t) * Math.exp(-t * 13) * .5;
     if (kind === 'hit') value = (noise - mid) * Math.exp(-t * 55) * .75 + Math.sin(2 * Math.PI * 1700 * t) * Math.exp(-t * 35) * .14;
     if (kind === 'motor') value = (Math.sin(2 * Math.PI * 70 * t) + .45 * Math.sin(2 * Math.PI * 140 * t) + .18 * Math.sin(2 * Math.PI * 350 * t)) * .27;
@@ -110,7 +113,7 @@ export class GameAudio
         this.echoLevel.gain.value = .16;
         this.reverb.connect(this.echoLevel).connect(this.compressor);
         this.bank = {};
-        for (const kind of ['gun', 'maxim', 'whistle', 'reload', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine', 'bombAlert'])
+        for (const kind of ['gun', 'maxim', 'rifle', 'bayonet', 'whistle', 'reload', 'enemy', 'impact', 'explosion', 'missile', 'hit', 'motor', 'engine', 'bombAlert'])
         {
           const data = synthesizeSound(kind, this.context.sampleRate);
           const buffer = this.context.createBuffer(1, data.length, this.context.sampleRate);
@@ -178,6 +181,11 @@ export class GameAudio
   }
   event(kind, position, time)
   {
+    if (kind === 'bayonet')
+    {
+      this.play('bayonet', null, .9);
+      return;
+    }
     if (kind === 'bombAlert')
     {
       this.play('bombAlert', null, .55);
@@ -219,7 +227,7 @@ export class GameAudio
   }
   update(spool, game = null)
   {
-    this.active = game?.state === 'playing';
+    this.active = game?.state === 'playing' || game?.state === 'overrun';
     this.applyVolume();
     if (!this.context) return;
     const now = this.context.currentTime;
@@ -228,7 +236,7 @@ export class GameAudio
     let nearest = null,
       range = Infinity;
     if (this.active)
-      for (const target of game.targets)
+      for (const target of (game.audioProfile === 'trench' ? game.biplanes : game.targets))
       {
         const distance = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
         if (distance < range)
@@ -237,7 +245,7 @@ export class GameAudio
           nearest = target;
         }
       }
-    this.engine.gain.gain.setTargetAtTime(nearest && game?.audioProfile !== 'trench' ? .18 / (1 + range / 180) : 0, now, .15);
+    this.engine.gain.gain.setTargetAtTime(nearest ? .18 / (1 + range / 180) : 0, now, .15);
     if (nearest)
     {
       this.engine.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, nearest.position.x / Math.max(50, Math.abs(nearest.position.z)))), now, .15);
