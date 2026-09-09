@@ -333,3 +333,111 @@ export function buildAircraft(view, target)
   view.scene.add(group);
   return group;
 }
+export function makeRoundGeometry()
+{
+  return new THREE.LatheGeometry([
+    new THREE.Vector2(0, -.32), new THREE.Vector2(.048, -.32),
+    new THREE.Vector2(.048, .08), new THREE.Vector2(.038, .19),
+    new THREE.Vector2(.016, .29), new THREE.Vector2(0, .32)
+  ], 10);
+}
+
+export function makeTracerMaterial()
+{
+  return new THREE.ShaderMaterial(
+  {
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `varying float head;
+      void main() { head = position.y + .5;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying float head;
+      void main() { gl_FragColor = vec4(mix(vec3(.9,.12,.015), vec3(1.,.82,.38), head), pow(head, 1.8) * .8); }`
+  });
+}
+
+export function buildMissile(view)
+{
+  const group = new THREE.Group();
+  const mesh = (geometry, material, x = 0, y = 0, z = 0) => view.mesh(geometry, material, group, x, y, z);
+  const paint = new THREE.MeshStandardMaterial(
+  {
+    color: 0xd7d8cd,
+    metalness: .45,
+    roughness: .38
+  });
+  const metal = new THREE.MeshStandardMaterial(
+  {
+    color: 0x46535a,
+    metalness: .8,
+    roughness: .26
+  });
+  const seeker = new THREE.MeshStandardMaterial(
+  {
+    color: 0x16232c,
+    metalness: .35,
+    roughness: .16
+  });
+  const band = new THREE.MeshStandardMaterial(
+  {
+    color: 0xbda861,
+    metalness: .45,
+    roughness: .4
+  });
+  const body = mesh(new THREE.LatheGeometry([
+    new THREE.Vector2(.18, -1.8), new THREE.Vector2(.24, -1.6), new THREE.Vector2(.24, 1.2),
+    new THREE.Vector2(.21, 1.55), new THREE.Vector2(.12, 1.98), new THREE.Vector2(0, 2.15)
+  ], 24), paint);
+  body.rotation.x = -Math.PI / 2;
+  mesh(new THREE.SphereGeometry(.145, 16, 10), seeker, 0, 0, -1.97);
+  const stripe = mesh(new THREE.CylinderGeometry(.245, .245, .09, 24), band, 0, 0, -1.05);
+  stripe.rotation.x = Math.PI / 2;
+  mesh(new THREE.TorusGeometry(.18, .045, 8, 24), metal, 0, 0, 1.82);
+  mesh(new THREE.CircleGeometry(.15, 20), seeker, 0, 0, 1.85);
+  const shape = new THREE.Shape();
+  shape.moveTo(.17, -.05);
+  shape.lineTo(.72, .5);
+  shape.lineTo(.72, .9);
+  shape.lineTo(.17, .82);
+  shape.closePath();
+  const finGeometry = new THREE.ExtrudeGeometry(shape,
+  {
+    depth: .035,
+    bevelEnabled: false
+  });
+  finGeometry.rotateX(Math.PI / 2);
+  for (let i = 0; i < 4; i++)
+  {
+    const fin = mesh(finGeometry, metal, 0, 0, .65);
+    fin.rotation.z = i * Math.PI / 2;
+    const fore = mesh(finGeometry, paint, 0, 0, -.8);
+    fore.scale.setScalar(.42);
+    fore.rotation.z = i * Math.PI / 2;
+  }
+  const exhaust = new THREE.Sprite(new THREE.SpriteMaterial(
+  {
+    map: view.glowTexture,
+    color: 0xffc778,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  }));
+  exhaust.position.z = 2.25;
+  exhaust.scale.set(1.5, 1.5, 1);
+  group.add(exhaust);
+  const flame = mesh(new THREE.ConeGeometry(.19, 1.8, 12), new THREE.MeshBasicMaterial(
+  {
+    color: 0xffcc77,
+    transparent: true,
+    opacity: .65,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  }), 0, 0, 2.65);
+  flame.rotation.x = Math.PI / 2;
+  group.userData.exhaust = exhaust;
+  group.userData.flame = flame;
+  group.userData.smokePosition = new THREE.Vector3();
+  group.visible = false;
+  return group;
+}

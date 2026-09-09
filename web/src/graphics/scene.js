@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import
 {
+  MissileSmoke
+}
+from './trails.js';
+import
+{
   buildLandscape,
   buildAircraft,
   makeGlowTexture,
-  makeSmokeTexture
+  makeSmokeTexture,
+  makeRoundGeometry,
+  makeTracerMaterial,
+  buildMissile
 }
 from './visuals.js';
 import
@@ -171,17 +179,24 @@ export class ArenaView
     {
       color: 0xffe6a2,
       transparent: true,
-      opacity: 0.95
+      opacity: 0.65
     }));
     this.tracers.frustumCulled = false;
     this.scene.add(this.tracers);
-    this.projectileHeads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.28, 5, 4), new THREE.MeshBasicMaterial(
+    this.projectileHeads = new THREE.InstancedMesh(makeRoundGeometry(), new THREE.MeshStandardMaterial(
     {
-      color: 0xfff1c7
+      color: 0xc6a075,
+      metalness: .7,
+      roughness: .3
     }), MAX_SHOTS);
     this.projectileHeads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.projectileHeads.frustumCulled = false;
     this.scene.add(this.projectileHeads);
+    this.projectileStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(.025, .003, 1, 6), makeTracerMaterial(), MAX_SHOTS);
+    this.projectileStreaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.projectileStreaks.frustumCulled = false;
+    this.projectileStreaks.count = 0;
+    this.scene.add(this.projectileStreaks);
   }
 
   buildParticles()
@@ -263,16 +278,13 @@ export class ArenaView
       return mesh;
     };
     this.incomingTracers = lines(MAX_ENEMY_SHOTS, 0xff593d);
-    this.incomingHeads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 6, 5), new THREE.MeshBasicMaterial(
+    this.incomingHeads = new THREE.InstancedMesh(makeRoundGeometry(), new THREE.MeshStandardMaterial(
     {
-      color: 0xffe2a3,
-      toneMapped: false
+      color: 0xc6a075,
+      metalness: .7,
+      roughness: .3
     }), MAX_ENEMY_SHOTS);
-    this.incomingStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.035, 0.012, 1, 5), new THREE.MeshBasicMaterial(
-    {
-      color: 0xffcb8a,
-      toneMapped: false
-    }), MAX_ENEMY_SHOTS);
+    this.incomingStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(.035, .003, 1, 6), makeTracerMaterial(), MAX_ENEMY_SHOTS);
     const glowGeometry = new THREE.BufferGeometry();
     glowGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_ENEMY_SHOTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
     glowGeometry.setDrawRange(0, 0);
@@ -280,7 +292,7 @@ export class ArenaView
     {
       map: this.glowTexture,
       color: 0xffb76a,
-      size: 0.75,
+      size: 0.5,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -295,24 +307,15 @@ export class ArenaView
       mesh.count = 0;
       this.scene.add(mesh);
     }
-    this.missileTrails = lines(MAX_MISSILES, 0xe8e7df);
+    this.missileSmoke = new MissileSmoke(this.scene, this.smokeTexture);
     this.missileModels = Array.from(
     {
       length: MAX_MISSILES
     }, () =>
     {
-      const group = new THREE.Group();
-      const body = this.mesh(new THREE.ConeGeometry(0.65, 4, 8), this.materials.cream, group);
-      body.rotation.x = -Math.PI / 2;
-      this.mesh(new THREE.BoxGeometry(2.3, 0.15, 1.3), this.materials.navy, group, 0, 0, 1);
-      const exhaust = this.mesh(new THREE.OctahedronGeometry(0.7), new THREE.MeshBasicMaterial(
-      {
-        color: 0xffa64e
-      }), group, 0, 0, 2.8);
-      exhaust.scale.z = 2;
-      group.visible = false;
-      this.scene.add(group);
-      return group;
+      const model = buildMissile(this);
+      this.scene.add(model);
+      return model;
     });
     this.flareMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1), new THREE.MeshBasicMaterial(
     {
@@ -432,29 +435,41 @@ export class ArenaView
       const p = projectile.position,
         prev = projectile.previous;
       const i = n * 6;
-      this.tracerPositions.set([p.x, p.y, p.z, p.x - (p.x - prev.x) * 2.2, p.y - (p.y - prev.y) * 2.2, p.z - (p.z - prev.z) * 2.2], i);
+      this.flightDirection.set(p.x - prev.x, p.y - prev.y, p.z - prev.z).normalize();
+      const length = Math.min(3.5, Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z));
+      this.tracerPositions.set([p.x, p.y, p.z, p.x - this.flightDirection.x * length, p.y - this.flightDirection.y * length, p.z - this.flightDirection.z * length], i);
       this.dummy.position.set(p.x, p.y, p.z);
       this.dummy.scale.setScalar(1);
       this.dummy.updateMatrix();
-      this.projectileHeads.setMatrixAt(n++, this.dummy.matrix);
+      this.dummy.quaternion.setFromUnitVectors(UP, this.flightDirection);
+      this.dummy.updateMatrix();
+      this.projectileHeads.setMatrixAt(n, this.dummy.matrix);
+      this.dummy.position.addScaledVector(this.flightDirection, -length / 2);
+      this.dummy.scale.set(1, length, 1);
+      this.dummy.updateMatrix();
+      this.projectileStreaks.setMatrixAt(n++, this.dummy.matrix);
     }
     this.tracers.geometry.setDrawRange(0, n * 2);
     this.tracers.geometry.attributes.position.needsUpdate = true;
     this.projectileHeads.count = n;
     this.projectileHeads.instanceMatrix.needsUpdate = true;
+    this.projectileStreaks.count = n;
+    this.projectileStreaks.instanceMatrix.needsUpdate = true;
     const incoming = this.incomingTracers.geometry;
     n = 0;
     for (const shot of game.enemyShots)
     {
-      if (shot.age <= 0) continue;
+      if (shot.age <= 0 || !shot.launched) continue;
       const p = shot.position,
         prev = shot.previous;
       this.flightDirection.set(p.x - prev.x, p.y - prev.y, p.z - prev.z).normalize();
-      const length = Math.min(6, shot.age * 420);
+      const length = Math.min(5, shot.age * 650);
       const d = this.flightDirection;
       incoming.attributes.position.array.set([p.x, p.y, p.z, p.x - d.x * length, p.y - d.y * length, p.z - d.z * length], n * 6);
       this.dummy.position.set(p.x, p.y, p.z);
       this.dummy.scale.setScalar(1);
+      this.dummy.updateMatrix();
+      this.dummy.quaternion.setFromUnitVectors(UP, d);
       this.dummy.updateMatrix();
       this.incomingHeads.setMatrixAt(n, this.dummy.matrix);
       this.incomingGlow.geometry.attributes.position.array.set([p.x, p.y, p.z], n * 3);
@@ -482,16 +497,27 @@ export class ArenaView
         d = missile.direction;
       model.position.set(p.x, p.y, p.z);
       model.quaternion.setFromUnitVectors(FORWARD, this.flightDirection.set(d.x, d.y, d.z));
-      this.missileTrails.geometry.attributes.position.array.set([p.x, p.y, p.z, p.x - d.x * 24, p.y - d.y * 24, p.z - d.z * 24], i * 6);
+      if (model.userData.missileId !== missile.id)
+      {
+        model.userData.missileId = missile.id;
+        model.userData.smokePosition.set(missile.previous.x, missile.previous.y, missile.previous.z);
+      }
+      if (dt > 0)
+      {
+        if (missile.age > .18) this.missileSmoke.emit(model.userData.smokePosition, model.position);
+        else model.userData.smokePosition.copy(model.position);
+      }
+      const power = missile.age < 1.4 ? 1 : .65;
+      model.userData.exhaust.material.opacity = power * (.85 + Math.sin(this.clock * 85) * .1);
+      model.userData.flame.scale.y = power * (1 + Math.sin(this.clock * 90) * .12);
     });
-    this.missileTrails.geometry.setDrawRange(0, game.missiles.length * 2);
-    this.missileTrails.geometry.attributes.position.needsUpdate = true;
+    this.missileSmoke.update(dt, this.canvas.height / (2 * Math.tan(this.camera.fov * Math.PI / 360)));
     n = 0;
     for (const flare of game.flares)
     {
       for (let i = 0; i < 6 && n < 24; i++)
       {
-        this.dummy.position.set(flare.position.x - flare.drift * i * 0.045, flare.position.y + i * 0.5, flare.position.z + i * 0.8);
+        this.dummy.position.set(flare.position.x - flare.velocity.x * i * .04, flare.position.y - flare.velocity.y * i * .04, flare.position.z - flare.velocity.z * i * .04);
         this.dummy.scale.setScalar(Math.max(0, (1 - flare.age / 3) * (1.8 - i * 0.2)));
         this.dummy.rotation.set(flare.age, i, flare.age * 2);
         this.dummy.updateMatrix();
@@ -553,6 +579,7 @@ export class ArenaView
 
   clearEffects()
   {
+    this.missileSmoke.clear();
     for (const cloud of this.smoke)
     {
       cloud.life = 0;

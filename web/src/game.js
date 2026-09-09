@@ -11,6 +11,78 @@ export const MISSILE_RELOAD = 3;
 export const MISSILE_MAGAZINE = 5;
 export const MAX_MISSILES = MISSILE_MAGAZINE + Math.ceil(ROUND_SECONDS / MISSILE_RELOAD);
 export const MISSILE_RANGE = 4000;
+// Gameplay tuning, not specifications for a real aircraft or weapon.
+export const MISSILE_SPEED = 480;
+export const MISSILE_ACCELERATION = 220;
+export const MISSILE_TURN_RATE = .38;
+export const AIRCRAFT_BANK_LIMIT = .75;
+export const AIRCRAFT_ROLL_RATE = .4;
+export const AIRCRAFT_PITCH_RATE = .12;
+const ENEMY_ROUND_SPEED = 650;
+const PLAYER_POSITION = {
+  x: 0,
+  y: 8,
+  z: 0
+};
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+export function aircraftForward(target)
+{
+  const cp = Math.cos(target.pitch);
+  return {
+    x: -Math.sin(target.heading) * cp,
+    y: Math.sin(target.pitch),
+    z: -Math.cos(target.heading) * cp
+  };
+}
+
+function turnTowards(direction, desired, limit)
+{
+  const dot = clamp(direction.x * desired.x + direction.y * desired.y + direction.z * desired.z, -1, 1);
+  const angle = Math.acos(dot);
+  if (angle <= limit) return {
+    ...desired
+  };
+  if (angle < 1e-8) return {
+    ...direction
+  };
+  const tangent = {
+    x: desired.x - direction.x * dot,
+    y: desired.y - direction.y * dot,
+    z: desired.z - direction.z * dot
+  };
+  let length = Math.hypot(tangent.x, tangent.y, tangent.z);
+  if (length < 1e-8)
+  {
+    Object.assign(tangent, Math.abs(direction.y) < .9 ?
+    {
+      x: -direction.z,
+      y: 0,
+      z: direction.x
+    } :
+    {
+      x: 0,
+      y: -direction.z,
+      z: direction.y
+    });
+    length = Math.hypot(tangent.x, tangent.y, tangent.z);
+  }
+  const result = {};
+  for (const axis of ['x', 'y', 'z']) result[axis] = direction[axis] * Math.cos(limit) + tangent[axis] / length * Math.sin(limit);
+  return result;
+}
+
+function leadTime(offset, velocity, speed)
+{
+  const a = velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2 - speed ** 2;
+  const b = 2 * (offset.x * velocity.x + offset.y * velocity.y + offset.z * velocity.z);
+  const c = offset.x ** 2 + offset.y ** 2 + offset.z ** 2;
+  const discriminant = b * b - 4 * a * c;
+  if (Math.abs(a) < 1e-8) return b < 0 ? clamp(-c / b, 0, 4) : 0;
+  if (discriminant < 0) return 0;
+  const roots = [(-b - Math.sqrt(discriminant)) / (2 * a), (-b + Math.sqrt(discriminant)) / (2 * a)].filter(t => t > 0);
+  return roots.length ? Math.min(4, ...roots) : 0;
+}
 
 export function surfaceHeight(x, z)
 {
@@ -290,36 +362,33 @@ export class ArcadeGame
       y,
       z
     };
+    const range = Math.max(1, Math.hypot(x, z));
+    const outward = {
+      x: x / range,
+      z: z / range
+    };
+    const offset = path === 'sweep' ? 320 : path === 'cross' ? -280 : 160;
     const route = makeRoute([
       position,
       {
-        x: x * .65 + (path === 'sweep' ? side * 90 : 0),
-        y: y * .85 + (path === 'swoop' ? 35 : 0),
-        z: z * .7
+        x: x * .7 - outward.z * bend * offset,
+        y: y * .82 + (path === 'swoop' ? 60 : 0),
+        z: z * .7 + outward.x * bend * offset
       },
       {
-        x: bend * (path === 'weave' ? 65 : 100),
-        y: 55 + rand() * 25,
-        z: -260
+        x: outward.x * 1200,
+        y: 140,
+        z: outward.z * 1200
       },
       {
-        x: -bend * 18,
-        y: 28 + rand() * 8,
-        z: -95
-      },
-      {
-        x: side * 100,
-        y: 75,
-        z: 90
-      },
-      {
-        x: side * 360,
-        y: 230,
-        z: 370
+        x: outward.x * 750,
+        y: 90,
+        z: outward.z * 750
       }
     ]);
     const first = route[1];
     const heading = Math.atan2(-(first.x - x), -(first.z - z));
+    const pitch = Math.atan2(first.y - y, Math.hypot(first.x - x, first.z - z));
     const target = {
       id: ++this.nextId,
       kind,
@@ -329,7 +398,15 @@ export class ArcadeGame
       speed: (95 + rand() * 25) * this.tuning.speed * (1 + (this.wave - 1) * .15),
       route,
       routeDistance: 0,
-      routeIndex: 1,
+      routeIndex: 0,
+      flightPhase: 'approach',
+      egress:
+      {
+        x: -outward.x * 4000 - outward.z * side * 1500,
+        y: 700,
+        z: -outward.z * 4000 + outward.x * side * 1500
+      },
+      pitchRate: 0,
       evasion: 0,
       position,
       previous:
@@ -343,7 +420,7 @@ export class ArcadeGame
         z: 0
       },
       heading,
-      pitch: 0,
+      pitch,
       bank: 0,
       radius: 8 * this.tuning.radius,
       attacks: 0,
@@ -362,41 +439,84 @@ export class ArcadeGame
     if (dt <= 0) return;
     Object.assign(target.previous, target.position);
     target.age += dt;
-    const threatened = firing || this.missiles.some(missile => missile.targetId === target.id);
+    const range = Math.hypot(target.position.x, target.position.z);
+    const threatened = (firing && range < 900) || this.missiles.some(missile => missile.targetId === target.id && Math.hypot(missile.position.x - target.position.x, missile.position.y - target.position.y, missile.position.z - target.position.z) < 850);
     target.evasion += ((threatened ? 1 : 0) - target.evasion) * (1 - Math.exp(-dt * .8));
-    target.routeDistance = Math.min(target.route.at(-1).distance, target.routeDistance + target.speed * dt);
-    while (target.routeIndex < target.route.length - 1 && target.route[target.routeIndex].distance < target.routeDistance) target.routeIndex++;
-    const a = target.route[target.routeIndex - 1],
-      b = target.route[target.routeIndex];
-    const t = (target.routeDistance - a.distance) / Math.max(.001, b.distance - a.distance);
-    for (const axis of ['x', 'y', 'z']) target.position[axis] = a[axis] + (b[axis] - a[axis]) * t;
-    target.position.x += Math.sin(target.age * .45 + target.phase) * target.evasion * 10;
-    for (const axis of ['x', 'y', 'z']) target.velocity[axis] = (target.position[axis] - target.previous[axis]) / dt;
-    const heading = Math.atan2(-target.velocity.x, -target.velocity.z);
-    const turn = Math.atan2(Math.sin(heading - target.heading), Math.cos(heading - target.heading));
-    const roll = Math.max(-.75, Math.min(.75, turn / dt * 2));
-    target.bank += (roll - target.bank) * (1 - Math.exp(-dt * 3));
-    target.heading += turn;
-    const pitch = Math.atan2(target.velocity.y, Math.hypot(target.velocity.x, target.velocity.z));
-    target.pitch += (pitch - target.pitch) * (1 - Math.exp(-dt * 5));
+    if (target.flightPhase === 'approach' && range < 1200) target.flightPhase = 'run';
+    if (target.flightPhase === 'run' && (range < 210 || target.position.y < 25)) target.flightPhase = 'egress';
+    let destination;
+    if (target.flightPhase === 'approach')
+    {
+      // Follow a distant point on the route. The route guides the aircraft;
+      // its bank and pitch limits determine where it can actually fly.
+      let closest = Infinity;
+      for (let i = target.routeIndex; i < target.route.length; i++)
+      {
+        const point = target.route[i];
+        const distance = Math.hypot(point.x - target.position.x, point.y - target.position.y, point.z - target.position.z);
+        if (distance < closest)
+        {
+          closest = distance;
+          target.routeIndex = i;
+        }
+      }
+      target.routeDistance = target.route[target.routeIndex].distance;
+      let ahead = target.routeIndex;
+      const lookAhead = target.routeDistance + Math.max(240, target.speed * 2.5);
+      while (ahead < target.route.length - 1 && target.route[ahead].distance < lookAhead) ahead++;
+      destination = target.route[ahead];
+    }
+    else destination = target.flightPhase === 'run' ? PLAYER_POSITION : target.egress;
+    const dx = destination.x - target.position.x,
+      dy = destination.y - target.position.y,
+      dz = destination.z - target.position.z;
+    const desiredHeading = Math.atan2(-dx, -dz) + (target.flightPhase !== 'egress' ? Math.sin(target.age * .45 + target.phase) * target.evasion * .06 : 0);
+    const headingError = Math.atan2(Math.sin(desiredHeading - target.heading), Math.cos(desiredHeading - target.heading));
+    const desiredBank = clamp(Math.atan(headingError * .8 * target.speed / 9.81), -AIRCRAFT_BANK_LIMIT, AIRCRAFT_BANK_LIMIT);
+    target.bank += clamp(desiredBank - target.bank, -AIRCRAFT_ROLL_RATE * dt, AIRCRAFT_ROLL_RATE * dt);
+    target.heading += 9.81 * Math.tan(target.bank) / target.speed * dt;
+    const desiredPitch = clamp(Math.atan2(dy, Math.hypot(dx, dz)), -.35, .4);
+    const pitchRate = clamp((desiredPitch - target.pitch) * .8, -AIRCRAFT_PITCH_RATE, AIRCRAFT_PITCH_RATE);
+    target.pitchRate += (pitchRate - target.pitchRate) * (1 - Math.exp(-dt * 2));
+    target.pitch += target.pitchRate * dt;
+    const forward = aircraftForward(target);
+    for (const axis of ['x', 'y', 'z'])
+    {
+      target.velocity[axis] = forward[axis] * target.speed;
+      target.position[axis] += target.velocity[axis] * dt;
+    }
     target.flash = Math.max(0, target.flash - dt);
     target.muzzleFlash = Math.max(0, target.muzzleFlash - dt);
     target.flareCooldown = Math.max(0, target.flareCooldown - dt);
   }
 
+  canAttack(target)
+  {
+    const dx = -target.position.x,
+      dy = 8 - target.position.y,
+      dz = -target.position.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (!target.alive || distance < 160 || distance > 950 || target.flightPhase === 'egress') return false;
+    const forward = aircraftForward(target);
+    return (forward.x * dx + forward.y * dy + forward.z * dz) / distance > Math.cos(.09);
+  }
+
   missileTarget(direction)
   {
     let best = null,
-      alignment = 0.965;
+      alignment = 0.985;
     for (const target of this.targets)
     {
-      if (!target.alive || target.position.z > -30) continue;
+      if (!target.alive) continue;
       const
       {
         x,
         z
       } = target.position, y = target.position.y - 8;
-      const dot = (x * direction.x + y * direction.y + z * direction.z) / Math.hypot(x, y, z);
+      const distance = Math.hypot(x, y, z);
+      if (distance < 10 || distance > MISSILE_RANGE) continue;
+      // All-aspect game seeker: an approaching aircraft can be locked head-on.
+      const dot = (x * direction.x + y * direction.y + z * direction.z) / distance;
       if (dot > alignment)
       {
         best = target;
@@ -414,15 +534,15 @@ export class ArcadeGame
     {
       position:
       {
-        x: 0,
-        y: 8,
-        z: 0
+        x: -3.5,
+        y: 7,
+        z: -1.5
       },
       previous:
       {
-        x: 0,
-        y: 8,
-        z: 0
+        x: -3.5,
+        y: 7,
+        z: -1.5
       },
       direction:
       {
@@ -430,6 +550,8 @@ export class ArcadeGame
         y: direction.y,
         z: direction.z
       },
+      id: ++this.nextId,
+      speed: 180,
       targetId: target?.id ?? null,
       decoyId: null,
       flareChecked: false,
@@ -477,9 +599,12 @@ export class ArcadeGame
     {
       Object.assign(flare.previous, flare.position);
       flare.age += dt;
-      flare.position.x += flare.drift * dt;
-      flare.position.y -= 10 * dt;
-      flare.position.z -= 12 * dt;
+      for (const axis of ['x', 'y', 'z'])
+      {
+        flare.position[axis] += flare.velocity[axis] * dt;
+        flare.velocity[axis] *= Math.exp(-dt * 1.2);
+      }
+      flare.velocity.y -= 9.81 * dt;
     }
     this.flares = this.flares.filter(flare => flare.age < 3);
     for (const missile of this.missiles)
@@ -487,7 +612,7 @@ export class ArcadeGame
       missile.age += dt;
       Object.assign(missile.previous, missile.position);
       const target = this.targets.find(item => item.id === missile.targetId && item.alive);
-      if (target && !missile.flareChecked && Math.hypot(target.position.x - missile.position.x, target.position.y - missile.position.y, target.position.z - missile.position.z) < 150)
+      if (target && !missile.flareChecked && Math.hypot(target.position.x - missile.position.x, target.position.y - missile.position.y, target.position.z - missile.position.z) < 350)
       {
         missile.flareChecked = true;
         if (target.flareCooldown === 0 && this.random() < this.tuning.flares)
@@ -503,7 +628,13 @@ export class ArcadeGame
               ...target.position
             },
             age: 0,
-            drift: this.random() < 0.5 ? -27 : 27
+            drift: this.random() < 0.5 ? -27 : 27,
+            velocity:
+            {
+              x: target.velocity.x * .7 + (this.random() - .5) * 50,
+              y: target.velocity.y * .7 - 8,
+              z: target.velocity.z * .7
+            }
           };
           this.flares.push(flare);
           target.flareCooldown = 5;
@@ -520,25 +651,42 @@ export class ArcadeGame
       }
       const decoy = this.flares.find(item => item.id === missile.decoyId);
       const destination = missile.decoyId !== null ? decoy?.position : target?.position;
+      const previousSpeed = missile.speed;
+      missile.speed = Math.min(MISSILE_SPEED, missile.speed + MISSILE_ACCELERATION * dt);
       if (destination)
       {
-        const dx = destination.x - missile.position.x,
-          dy = destination.y - missile.position.y,
-          dz = destination.z - missile.position.z;
-        const distance = Math.hypot(dx, dy, dz);
-        if (distance > 0)
+        const offset = {
+          x: destination.x - missile.position.x,
+          y: destination.y - missile.position.y,
+          z: destination.z - missile.position.z
+        };
+        const distance = Math.hypot(offset.x, offset.y, offset.z);
+        const alignment = distance ? (offset.x * missile.direction.x + offset.y * missile.direction.y + offset.z * missile.direction.z) / distance : 1;
+        if (alignment < .5)
         {
-          // Simple game steering with limited agility lets a weaving plane escape.
-          const turn = Math.min(1, dt * 2.4);
-          missile.direction.x += (dx / distance - missile.direction.x) * turn;
-          missile.direction.y += (dy / distance - missile.direction.y) * turn;
-          missile.direction.z += (dz / distance - missile.direction.z) * turn;
-          const length = Math.hypot(missile.direction.x, missile.direction.y, missile.direction.z);
+          // A target outside the seeker cone is lost; do not loop back after a pass.
+          missile.targetId = null;
+          missile.decoyId = null;
+        }
+        else if (distance > 0)
+        {
+          const velocity = (missile.decoyId !== null ? decoy : target)?.velocity ??
+          {
+            x: 0,
+            y: 0,
+            z: 0
+          };
+          const lead = leadTime(offset, velocity, missile.speed);
+          for (const axis of ['x', 'y', 'z']) offset[axis] += velocity[axis] * lead;
+          const length = Math.hypot(offset.x, offset.y, offset.z);
           if (length > 0)
-            for (const axis of ['x', 'y', 'z']) missile.direction[axis] /= length;
+          {
+            for (const axis of ['x', 'y', 'z']) offset[axis] /= length;
+            missile.direction = turnTowards(missile.direction, offset, Math.min(MISSILE_TURN_RATE, 140 / missile.speed) * dt);
+          }
         }
       }
-      for (const axis of ['x', 'y', 'z']) missile.position[axis] += missile.direction[axis] * 145 * dt;
+      for (const axis of ['x', 'y', 'z']) missile.position[axis] += missile.direction[axis] * (previousSpeed + missile.speed) * .5 * dt;
       if (decoy && sweptHit(missile.previous, missile.position, decoy.previous, decoy.position, 8) !== null)
       {
         missile.alive = false;
@@ -590,6 +738,7 @@ export class ArcadeGame
 
   attack(target)
   {
+    if (!this.canAttack(target)) return;
     const count = 12;
     if (this.enemyShots.length + count > MAX_ENEMY_SHOTS) return;
     const origin = {
@@ -601,12 +750,9 @@ export class ArcadeGame
       sourceId: target.id,
       launched: false,
       wing: i % 2 ? -5 : 5,
-      origin,
-      impact:
+      origin:
       {
-        x: (i % 2 ? -1 : 1) * (5 + this.random() * 9),
-        y: 6 + this.random() * 2,
-        z: -18 - this.random() * 8
+        ...origin
       },
       position:
       {
@@ -617,7 +763,8 @@ export class ArcadeGame
         ...origin
       },
       age: -i * 0.075,
-      duration: 0,
+      duration: 6,
+      alive: true,
       velocity:
       {
         x: 0,
@@ -628,7 +775,7 @@ export class ArcadeGame
     });
     target.attacks++;
     target.attackClock = .9;
-    target.muzzleFlash = 1.05;
+    target.muzzleFlash = .09;
     this.events.push(
     {
       type: 'incoming',
@@ -780,8 +927,8 @@ export class ArcadeGame
     {
       if (!target.alive) continue;
       target.attackClock -= dt;
-      if (target.position.z >= -350 && target.position.z < -70 && target.attacks < this.tuning.burst && target.attackClock <= 0) this.attack(target);
-      if (target.routeDistance >= target.route.at(-1).distance)
+      if (target.attacks < this.tuning.burst && target.attackClock <= 0 && this.canAttack(target)) this.attack(target);
+      if ((target.flightPhase === 'egress' && Math.hypot(target.position.x, target.position.z) > 2300) || target.age > 85)
       {
         target.alive = false;
         this.escaped++;
@@ -793,50 +940,8 @@ export class ArcadeGame
       }
     }
     this.targets = this.targets.filter(target => target.alive);
-    // Enemy tracers are arcade attack cues. Damage arrives when they reach the
-    // player, while the player's rounds continue to use the shared ballistics core.
-    for (const shot of this.enemyShots)
-    {
-      Object.assign(shot.previous, shot.position);
-      shot.age += dt;
-      if (shot.age < 0) continue;
-      if (!shot.launched)
-      {
-        const source = this.targets.find(target => target.id === shot.sourceId);
-        if (!source)
-        {
-          shot.age = shot.duration;
-          continue;
-        }
-        const speed = Math.hypot(source.velocity.x, source.velocity.y, source.velocity.z) || 1;
-        const cy = Math.cos(source.heading),
-          sy = Math.sin(source.heading),
-          cb = Math.cos(source.bank),
-          sb = Math.sin(source.bank),
-          sp = Math.sin(source.pitch),
-          cp = Math.cos(source.pitch);
-        shot.origin = {
-          x: source.position.x + (cy * cb + sy * sp * sb) * shot.wing + source.velocity.x / speed * 4,
-          y: source.position.y + sb * cp * shot.wing + source.velocity.y / speed * 4,
-          z: source.position.z + (-sy * cb + cy * sp * sb) * shot.wing + source.velocity.z / speed * 4
-        };
-        Object.assign(shot.previous, shot.origin);
-        shot.duration = Math.hypot(shot.impact.x - shot.origin.x, shot.impact.y - shot.origin.y, shot.impact.z - shot.origin.z) / 420;
-        for (const axis of ['x', 'y', 'z']) shot.velocity[axis] = (shot.impact[axis] - shot.origin[axis]) / shot.duration;
-        shot.velocity.y += 4.9 * shot.duration;
-        shot.launched = true;
-      }
-      const flight = Math.min(shot.age, shot.duration);
-      for (const axis of ['x', 'y', 'z']) shot.position[axis] = shot.origin[axis] + shot.velocity[axis] * flight;
-      shot.position.y -= 4.9 * flight * flight;
-      const t = Math.min(1, shot.age / shot.duration);
-      if (t === 1)
-      {
-        this.takeDamage(shot.damage, shot.impact);
-        if (this.state !== 'playing') return;
-      }
-    }
-    this.enemyShots = this.enemyShots.filter(shot => shot.age < 0 || (shot.launched && shot.age < shot.duration));
+    this.advanceEnemyShots(dt);
+    if (this.state !== 'playing') return;
     const regenTime = Math.max(0, this.time - Math.max(this.time - dt, this.lastDamage + REGEN_DELAY));
     this.health = Math.min(MAX_HEALTH, this.health + REGEN_RATE * regenTime);
     this.spawnClock -= dt;
@@ -846,6 +951,80 @@ export class ArcadeGame
       this.spawnClock = this.tuning.interval / (1 + (this.wave - 1) * 0.15);
     }
     if (this.remaining <= 0) this.finish('survived');
+  }
+
+  advanceEnemyShots(dt)
+  {
+    for (const shot of this.enemyShots)
+    {
+      Object.assign(shot.previous, shot.position);
+      shot.age += dt;
+      if (shot.age < 0) continue;
+      if (!shot.launched)
+      {
+        const source = this.targets.find(target => target.id === shot.sourceId);
+        // Fixed forward guns: check alignment for every round in the burst.
+        if (!source || !this.canAttack(source))
+        {
+          shot.alive = false;
+          continue;
+        }
+        const forward = aircraftForward(source);
+        const cy = Math.cos(source.heading),
+          sy = Math.sin(source.heading),
+          cb = Math.cos(source.bank),
+          sb = Math.sin(source.bank),
+          sp = Math.sin(source.pitch),
+          cp = Math.cos(source.pitch);
+        const right = {
+          x: cy * cb + sy * sp * sb,
+          y: sb * cp,
+          z: -sy * cb + cy * sp * sb
+        };
+        const up = {
+          x: right.y * forward.z - right.z * forward.y,
+          y: right.z * forward.x - right.x * forward.z,
+          z: right.x * forward.y - right.y * forward.x
+        };
+        const spreadX = (this.random() - .5) * .008,
+          spreadY = (this.random() - .5) * .008;
+        for (const axis of ['x', 'y', 'z'])
+        {
+          shot.origin[axis] = source.position[axis] + right[axis] * shot.wing + forward[axis] * 4;
+          shot.velocity[axis] = source.velocity[axis] + (forward[axis] + right[axis] * spreadX + up[axis] * spreadY) * ENEMY_ROUND_SPEED;
+        }
+        Object.assign(shot.previous, shot.origin);
+        shot.launched = true;
+        source.muzzleFlash = .09;
+      }
+      for (const axis of ['x', 'y', 'z']) shot.position[axis] = shot.origin[axis] + shot.velocity[axis] * shot.age;
+      shot.position.y -= 4.905 * shot.age * shot.age;
+      const contact = sweptHit(shot.previous, shot.position, PLAYER_POSITION, PLAYER_POSITION, 12);
+      if (contact !== null)
+      {
+        for (const axis of ['x', 'y', 'z']) shot.position[axis] = shot.previous[axis] + (shot.position[axis] - shot.previous[axis]) * contact;
+        shot.alive = false;
+        this.takeDamage(shot.damage,
+        {
+          ...shot.position
+        });
+        if (this.state !== 'playing') return;
+      }
+      else if (shot.position.y <= surfaceHeight(shot.position.x, shot.position.z))
+      {
+        shot.alive = false;
+        this.events.push(
+        {
+          type: 'enemyImpact',
+          position:
+          {
+            ...shot.position
+          }
+        });
+      }
+      else if (shot.age >= shot.duration) shot.alive = false;
+    }
+    this.enemyShots = this.enemyShots.filter(shot => shot.alive);
   }
 
   dispose()

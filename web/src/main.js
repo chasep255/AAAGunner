@@ -477,6 +477,11 @@ try
           ui.toast.textContent = 'INCOMING FIRE';
           toastUntil = timestamp + 1200;
         }
+        if (event.type === 'enemyImpact')
+        {
+          view.burst(event.position, false);
+          audio.event('distantImpact', event.position, game.time);
+        }
         if (event.type === 'damage')
         {
           damageUntil = timestamp + 450;

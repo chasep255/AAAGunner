@@ -2,7 +2,7 @@
 
 A browser arcade game: defend a coastal gun emplacement through three waves of attacking aircraft. Mouse aiming, a rotary gun, homing missiles, regenerating health, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
 
-Aircraft approach from 2.5–4 km out on curved routes, bank into turns, strafe, evade, and release decoy flares. Gunfire and distant explosions arrive after their sound travel time. Missiles have a five-round magazine; one replenishes every three seconds. They remain in flight until a collision or the 4 km range boundary. Each round lasts 90 seconds, with three difficulties and score streaks up to ×5.
+Aircraft approach from 2.5–4 km out on curved routes, bank into turns with limited roll and pitch rates, line up for forward gun passes, evade, and release decoy flares. Aircraft rounds follow the gun barrels with gravity and can miss the emplacement. Gunfire and distant explosions arrive after their sound travel time. Heat-seeking missiles can lock approaching aircraft head-on as well as from behind. They accelerate to cruise speed, lead moving targets, and turn within an angular and lateral-acceleration limit. Losing a target outside the seeker cone ends tracking. Exhaust leaves a fading smoke trail in world space. Missiles have a five-round magazine; one replenishes every three seconds. They remain in flight until a collision or the 4 km range boundary. Each round lasts 90 seconds, with three difficulties and score streaks up to ×5.
 
 ## Controls
 
