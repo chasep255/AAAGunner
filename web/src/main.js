@@ -25,7 +25,6 @@ let game, view, frameId, accumulator = 0,
   hudClock = 0;
 let pointerFiring = false,
   spaceFiring = false,
-  focused = false,
   activePointer = null;
 let aimX = 0,
   aimY = 0,
@@ -43,7 +42,6 @@ function clearInput()
 {
   pointerFiring = false;
   spaceFiring = false;
-  focused = false;
   if (activePointer !== null && ui.skyCanvas.hasPointerCapture(activePointer)) ui.skyCanvas.releasePointerCapture(activePointer);
   activePointer = null;
 }
@@ -206,7 +204,7 @@ function fail(error)
 function launchMissile()
 {
   if (game?.state !== 'playing' || !view) return;
-  const direction = view.directionAt(aimX, aimY, focused);
+  const direction = view.directionAt(aimX, aimY);
   game.fireMissile(direction);
   updateHud();
 }
@@ -260,7 +258,7 @@ function updateHud()
     marker.style.top = `${position.y}%`;
     return marker;
   }) : []));
-  const direction = view.directionAt(aimX, aimY, focused);
+  const direction = view.directionAt(aimX, aimY);
   const sight = game.state === 'playing' && ui.leadAssist.checked ? view.gunLeadMarker(game, direction) : null;
   ui.gunLead.hidden = !sight;
   if (sight)
@@ -400,7 +398,6 @@ window.addEventListener('keydown', event =>
     spaceFiring = true;
     event.preventDefault();
   }
-  if (event.key === 'Shift') focused = true;
   if (event.repeat) return;
   if (event.code === 'KeyM')
   {
@@ -418,7 +415,6 @@ window.addEventListener('keydown', event =>
 window.addEventListener('keyup', event =>
 {
   if (event.code === 'Space') spaceFiring = false;
-  if (event.key === 'Shift') focused = false;
 });
 window.addEventListener('blur', pause);
 document.addEventListener('visibilitychange', () =>
@@ -449,7 +445,7 @@ try
   ]);
   const physics = await loadPhysics();
   view = new ArenaView(ui.skyCanvas);
-  game = new ArcadeGame(physics);
+  game = new ArcadeGame(physics, Math.random, target => view.isAttackVisible(target));
   ui.engineStatus.textContent = 'SYSTEMS READY';
   setStartLabel('Deploy');
   ui.reticle.hidden = true;
@@ -462,7 +458,7 @@ try
     {
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
       lastFrame = timestamp;
-      const direction = view.directionAt(aimX, aimY, focused && game.state === 'playing');
+      const direction = view.directionAt(aimX, aimY);
       if (game.state === 'playing')
       {
         accumulator += elapsed;
@@ -547,7 +543,6 @@ try
       game.events.length = 0;
       if (timestamp > toastUntil) ui.toast.textContent = '';
       ui.reticle.classList.toggle('hit', timestamp < hitUntil);
-      ui.reticle.classList.toggle('focused', focused);
       ui.damageOverlay.classList.toggle('active', timestamp < damageUntil && game.state === 'playing');
       audio.update(game.spool, game);
       hudClock += elapsed;

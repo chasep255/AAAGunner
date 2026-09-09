@@ -37,6 +37,8 @@ export const MISSILE_RANGE = 4000;
 export const MISSILE_SPEED = 480;
 export const MISSILE_ACCELERATION = 220;
 export const MISSILE_TURN_RATE = .38;
+// Give the player time to react once an attacker is visible and unobstructed.
+export const ATTACK_REACTION_TIME = 1.5;
 export const AIRCRAFT_BANK_LIMIT = .75;
 export const AIRCRAFT_ROLL_RATE = .4;
 export const AIRCRAFT_PITCH_RATE = .12;
@@ -330,8 +332,9 @@ class ProjectilePool
 
 export class ArcadeGame
 {
-  constructor(physics, random = Math.random)
+  constructor(physics, random = Math.random, isAttackVisible = () => false)
   {
+    this.isAttackVisible = isAttackVisible;
     this.physics = physics;
     this.random = random;
     this.projectiles = new ProjectilePool(physics);
@@ -476,6 +479,7 @@ export class ArcadeGame
       radius: 8 * this.tuning.radius,
       attacks: 0,
       attackClock: 0,
+      visibleFor: 0,
       muzzleFlash: 0,
       flareCooldown: 0,
       health: kind === 'wing' ? 3 : 2,
@@ -541,8 +545,16 @@ export class ArcadeGame
     target.flareCooldown = Math.max(0, target.flareCooldown - dt);
   }
 
+  updateAttackVisibility(target, dt)
+  {
+    const range = Math.hypot(target.position.x, target.position.y - 8, target.position.z);
+    const visible = target.alive && range <= GUN_RANGE && this.isAttackVisible(target) && surfaceContact(PLAYER_POSITION, target.position) === null;
+    target.visibleFor = visible ? Math.min(ATTACK_REACTION_TIME, target.visibleFor + dt) : 0;
+  }
+
   canAttack(target)
   {
+    if (target.visibleFor < ATTACK_REACTION_TIME || !this.isAttackVisible(target)) return false;
     const dx = -target.position.x,
       dy = 8 - target.position.y,
       dz = -target.position.z;
@@ -932,7 +944,11 @@ export class ArcadeGame
     }
     if (this.time - this.lastKill > 5) this.combo = 0;
 
-    for (const target of this.targets) this.moveTarget(target, dt, firing && !this.overheated);
+    for (const target of this.targets)
+    {
+      this.moveTarget(target, dt, firing && !this.overheated);
+      this.updateAttackVisibility(target, dt);
+    }
 
     const canFire = firing && !this.overheated;
     this.spool = Math.max(0, Math.min(1, this.spool + (canFire ? 3.5 : -2.5) * dt));
@@ -1051,7 +1067,7 @@ export class ArcadeGame
       if (!shot.launched)
       {
         const source = this.targets.find(target => target.id === shot.sourceId);
-        // Fixed forward guns: check alignment for every round in the burst.
+        // Every round needs both nose alignment and a visible, unobstructed attacker.
         if (!source || !this.canAttack(source))
         {
           shot.alive = false;

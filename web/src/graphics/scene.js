@@ -74,6 +74,7 @@ export class ArenaView
     this.aim = new THREE.Vector3();
     this.localAim = new THREE.Vector3();
     this.flightDirection = new THREE.Vector3();
+    this.attackPosition = new THREE.Vector3();
     this.dummy = new THREE.Object3D();
     this.clock = 0;
     this.flashTime = 0;
@@ -432,14 +433,22 @@ export class ArenaView
     };
   }
 
-  directionAt(x, y, focused)
+  isAttackVisible(target)
   {
-    const fov = focused ? 43 : 60;
-    if (this.camera.fov !== fov)
-    {
-      this.camera.fov = fov;
-      this.camera.updateProjectionMatrix();
-    }
+    this.camera.updateMatrixWorld();
+    const point = this.attackPosition.copy(target.position).applyMatrix4(this.camera.matrixWorldInverse);
+    const depth = -point.z;
+    if (depth <= this.camera.near || depth >= this.camera.far) return false;
+    const halfHeight = depth * Math.tan(this.camera.fov * Math.PI / 360);
+    const halfWidth = halfHeight * this.camera.aspect;
+    // Keep the whole aircraft away from the edges and the top/bottom HUD.
+    const radius = target.kind === 'wing' ? 14 : 12;
+    return (Math.abs(point.x) + radius) / halfWidth < .78 &&
+      (point.y - radius) / halfHeight > -.55 && (point.y + radius) / halfHeight < .65;
+  }
+
+  directionAt(x, y)
+  {
     this.camera.updateMatrixWorld();
     return this.aim.set(x, y, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
   }
