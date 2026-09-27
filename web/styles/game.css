@@ -207,6 +207,29 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
 
 .mode-option { grid-column: 1 / -1; }
 .arena[data-mode="trench"] { --accent: #d6b777; --green: #bbcc9d; }
+.arena[data-mode="b17"] { --accent: #e6bd72; --green: #cadba8; }
+.formation-status { position: absolute; top: 210px; right: 30px; max-width: 265px; padding: 10px 12px; border: 1px solid var(--line); background: var(--glass); font: 9px 'Courier New', monospace; pointer-events: none; }
+.formation-status strong, .formation-status span { display: block; }
+.formation-status span { color: #bdcbd0; margin-top: 7px; line-height: 1.6; }
+.station-controls { position: absolute; bottom: 194px; left: 50%; transform: translateX(-50%); text-align: center; }
+.station-controls > span { display: block; font: 9px 'Courier New', monospace; letter-spacing: .12em; color: #d9e3df; text-shadow: 0 1px 4px #10222e; margin-bottom: 6px; }
+.station-controls > div { display: flex; gap: 5px; }
+.station-controls button { white-space: nowrap; padding: 9px 11px; font: 10px 'Courier New', monospace; background: #112029ed; }
+.station-controls button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+.station-controls b { display: inline-block; margin-left: 5px; color: #96a8ab; }
+.station-controls .threat b { color: #ffc681; }
+.panel-open .station-controls, .panel-open .formation-status { visibility: hidden; }
+@media (max-width: 600px) {
+  .formation-status { top: 195px; right: 8px; max-width: 142px; padding: 7px; font-size: 8px; }
+  .station-controls { bottom: 154px; width: calc(100% - 16px); }
+  .station-controls > div { gap: 3px; }
+  .station-controls button { flex: 1; padding: 10px 4px; font-size: 8px; }
+  .station-controls kbd { display: none; }
+}
+@media (max-height: 550px) and (min-width: 601px) {
+  .station-controls { bottom: 48px; }
+  .formation-status { top: 184px; font-size: 8px; }
+}
 .attack-indicators .ally-marker { color: #c4e6d1; border-color: #80b59a; background: #163d35bd; font-size: 8px; }
 .attack-indicators .ally-marker::after { border-top-color: #80b59a; }
 #modeThreat { display: inline; color: inherit; font-size: inherit; }

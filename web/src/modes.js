@@ -4,6 +4,49 @@ import
 }
 from './game.js';
 export const MODES = {
+  b17:
+  {
+    label: 'B-17 Formation',
+    description: 'Fly through a flak barrage over Europe. Man the tail, waist, nose, ball, or upper turret as your B-17 formation banks above the countryside. Fight off German fighters with your wingmen’s supporting fire.',
+    eyebrow: 'B-17F · FORMATION DEFENSE',
+    threat: 'GERMAN FIGHTERS · PROTECT THE FORMATION',
+    weapon: 'BROWNING .50 CAL',
+    ammo: 'BELT FED · UNLIMITED AMMO',
+    range: '1.4 KM',
+    healthLabel: 'BOMBER HULL',
+    secondaryLabel: '',
+    action: '',
+    actionHint: 'Press 1–6 to change gun position. Move the mouse to the edges or use arrow keys to rotate the ball and upper turrets',
+    heatLabel: 'BARREL HEAT',
+    stat: 'FIGHTERS',
+    fact: '4 WINGMEN',
+    location: 'OVER EUROPE · 6,000 M',
+    defeatTitle: 'Bomber lost',
+    gunSound: 'browning',
+    defeat(game)
+    {
+      return `Your B-17 was shot down after ${Math.floor(game.time)} seconds. You destroyed ${game.destroyed} fighters; your formation destroyed ${game.allyKills}. Lead your shots and switch stations to cover each approach.`;
+    },
+    success(game)
+    {
+      return `Formation defended with ${Math.ceil(game.healthPercent)}% hull and ${game.allies.filter(a => a.alive).length}/4 wingmen remaining. Allied crews shot down ${game.allyKills} fighters.`;
+    },
+    async create(physics, canvas)
+    {
+      const [{ BomberView }, { BomberGame }] = await Promise.all([import('./b17/scene.js'), import('./b17/game.js')]);
+      const view = new BomberView(canvas);
+      try
+      {
+        const game = new BomberGame(physics, Math.random, t => view.isAttackVisible(t), (b, d) => view.muzzlePosition(b, d));
+        return { view, game };
+      }
+      catch (error)
+      {
+        view.dispose();
+        throw error;
+      }
+    }
+  },
   coast:
   {
     label: 'Coast',

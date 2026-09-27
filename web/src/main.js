@@ -3,6 +3,7 @@ import
   MODES
 }
 from './modes.js';
+import { STATIONS, sectorOf } from './b17/flight.js';
 import
 {
   GUN_AMMO
@@ -19,6 +20,7 @@ import
 }
 from './screen-blood.js';
 const ui = Object.fromEntries([
+  'b17Help', 'formationStatus', 'wingmenStatus', 'flightStatus', 'stationControls', 'stationOption', 'stationSelect', 'speedOption', 'flightSpeed',
   'trenchDefense', 'lineStatus', 'supportStatus', 'coverBtn', 'suppressionStatus', 'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'secondaryPanel', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
   'bombWarning', 'bombTime', 'gunAmmo', 'gunGuide', 'leadAssist', 'score', 'combo', 'timer', 'wave', 'reticle', 'toast', 'gunLead', 'gunLeadLabel',
@@ -37,6 +39,7 @@ let game, view, frameId, accumulator = 0,
 let pointerFiring = false,
   spaceFiring = false,
   activePointer = null;
+const turretKeys = { left: false, right: false, up: false, down: false };
 let aimX = 0,
   aimY = 0,
   toastUntil = 0,
@@ -60,6 +63,7 @@ function clearInput()
 {
   pointerFiring = false;
   spaceFiring = false;
+  for (const key of Object.keys(turretKeys)) turretKeys[key] = false;
   if (game && modeKey === 'trench') game.ducking = false;
   if (activePointer !== null && ui.skyCanvas.hasPointerCapture(activePointer)) ui.skyCanvas.releasePointerCapture(activePointer);
   activePointer = null;
@@ -90,6 +94,7 @@ function showPanel(mode)
   ui.bombWarning.hidden = true;
   ui.difficulty.disabled = mode === 'paused';
   ui.modeSelect.disabled = mode === 'paused';
+  ui.flightSpeed.disabled = mode === 'paused';
   if (mode === 'ready')
   {
     ui.restartBtn.disabled = true;
@@ -141,7 +146,7 @@ function configureMode()
   ui.arena.dataset.mode = modeKey;
   ui.arena.classList.remove('bayoneted');
   screenBlood.clear();
-  document.getElementById('modeEyebrow').textContent = modeKey === 'trench' ? 'TRENCH DEFENSE' : 'COASTAL DEFENSE';
+  document.getElementById('modeEyebrow').textContent = modeSpec.eyebrow || (modeKey === 'trench' ? 'TRENCH DEFENSE' : 'COASTAL DEFENSE');
   ui.weaponLabel.textContent = modeSpec.weapon;
   ui.gunAmmo.textContent = modeSpec.ammo;
   ui.gunGuide.textContent = `${ui.leadAssist.checked ? 'AIM AT GOLD RING' : 'GUN RANGE'} · ${modeSpec.range}`;
@@ -155,14 +160,16 @@ function configureMode()
   const [number, ...label] = modeSpec.fact.split(' ');
   ui.modeFact.innerHTML = `<strong>${number}</strong> ${label.join(' ')}`;
   ui.modeLocation.textContent = modeSpec.location;
-  ui.modeThreat.textContent = modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS';
-  ui.secondaryKeys.innerHTML = modeKey === 'trench' ? '<kbd>RMB / C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
+  ui.modeThreat.textContent = modeSpec.threat || (modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS');
+  ui.secondaryKeys.innerHTML = modeKey === 'b17' ? '<kbd>1–6</kbd> GUN STATION' : modeKey === 'trench' ? '<kbd>RMB / C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
   ui.coastHelp.hidden = modeKey !== 'coast';
   ui.trenchHelp.hidden = modeKey !== 'trench';
+  for (const element of [ui.b17Help, ui.formationStatus, ui.stationControls, ui.stationOption, ui.speedOption]) element.hidden = modeKey !== 'b17';
+  if (modeKey === 'b17') changeStation(ui.stationSelect.value);
   ui.trenchDefense.hidden = modeKey !== 'trench';
   ui.coverBtn.hidden = modeKey !== 'trench';
-  ui.secondaryPanel.hidden = modeKey === 'trench';
-  ui.healthMeter.setAttribute('aria-label', 'Player health');
+  ui.secondaryPanel.hidden = modeKey !== 'coast';
+  ui.healthMeter.setAttribute('aria-label', modeKey === 'b17' ? 'Bomber hull integrity' : 'Player health');
   ui.skyCanvas.setAttribute('aria-label', `Move the mouse to aim. Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
   ui.heatWarning.firstChild.textContent = modeKey === 'trench' ? 'WATER JACKET HOT ' : 'BARRELS HOT ';
   ui.heatWarning.querySelector('span').textContent = modeKey === 'trench' ? 'Let it cool' : 'Let them cool';
@@ -257,7 +264,9 @@ function beginRound(resume = false)
     if (resume) game.resume();
     else
     {
+      if (modeKey === 'b17') game.airspeed = Number(ui.flightSpeed.value);
       game.start(ui.difficulty.value);
+      if (modeKey === 'b17') { view.resetStations(); view.setStation(game.station); }
       ui.arena.classList.remove('bayoneted');
       screenBlood.clear();
       view.clearEffects();
@@ -273,6 +282,7 @@ function beginRound(resume = false)
     ui.arena.classList.remove('panel-open');
     ui.difficulty.disabled = true;
     ui.modeSelect.disabled = true;
+    ui.flightSpeed.disabled = true;
     ui.restartBtn.disabled = false;
     setStartLabel('Deploy', true);
     ui.reticle.hidden = game.state !== 'playing';
@@ -318,7 +328,7 @@ function secondaryAction()
 {
   if (game?.state !== 'playing' || !view) return;
   const direction = view.directionAt(aimX, aimY);
-  modeSpec.secondary(game, direction);
+  modeSpec.secondary?.(game, direction);
   updateHud();
 }
 
@@ -326,6 +336,18 @@ function positionReticle()
 {
   ui.reticle.style.left = `${(aimX + 1) * 50}%`;
   ui.reticle.style.top = `${(1 - aimY) * 50}%`;
+}
+
+function changeStation(key)
+{
+  if (modeKey !== 'b17' || !game || !view) return;
+  clearInput();
+  game.setStation(key);
+  view.setStation(game.station);
+  ui.stationSelect.value = game.station;
+  aimX = aimY = 0;
+  positionReticle();
+  for (const button of ui.stationControls.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.station === game.station));
 }
 
 function moveAim(event)
@@ -394,6 +416,23 @@ function updateHud()
   ui.missileBtn.disabled = game.state !== 'playing' || empty;
   ui.gunStatus.textContent = game.overheated ? 'COOLING DOWN' : game.spool > 0.2 ? 'FIRING' : 'READY';
   driveBars.forEach((bar, i) => bar.classList.toggle('active', game.spool > i / 8));
+  if (modeKey === 'b17')
+  {
+    const turret = view.turretAngles[game.station];
+    ui.stationControls.querySelector(':scope > span').textContent = turret ? `MOUSE EDGES / ARROWS · AZ ${Math.round((turret.yaw * 180 / Math.PI + 360) % 360)}° · EL ${Math.round(turret.pitch * 180 / Math.PI)}°` : 'GUN STATION · THREATS';
+    ui.wingmenStatus.textContent = `FORMATION ${1 + game.allies.filter(a => a.alive).length}/5 · ALLIED KILLS ${game.allyKills}`;
+    const wind = game.flight.worldWind(game.time, { x: 0, y: 0, z: 0 });
+    ui.flightStatus.textContent = `TAS ${Math.round(game.flight.airspeed * 3.6)} KM/H · 6,000 M · WIND ${Math.round(Math.hypot(wind.x, wind.z) * 3.6)} KM/H · ${Math.abs(game.flight.bank) < .04 ? 'LEVEL FLIGHT' : `BANK ${game.flight.bank > 0 ? 'LEFT' : 'RIGHT'} ${Math.round(Math.abs(game.flight.bank) * 180 / Math.PI)}°`}`;
+    ui.healthStatus.textContent = incoming ? 'INCOMING FIRE' : game.healthPercent < 100 ? 'HULL DAMAGED' : 'FORMATION READY';
+    ui.weaponLabel.textContent = `${STATIONS[game.station].label.toUpperCase()} · ${STATIONS[game.station].guns === 2 ? 'TWIN' : 'SINGLE'} .50 CAL`;
+    for (const button of ui.stationControls.querySelectorAll('button'))
+    {
+      const count = game.targets.filter(t => t.alive && sectorOf(t.position) === button.dataset.station).length;
+      button.querySelector('b').textContent = count;
+      button.classList.toggle('threat', count > 0);
+      button.disabled = game.state !== 'playing';
+    }
+  }
   if (modeKey === 'trench')
   {
     ui.lineStatus.textContent = `LINE ${game.tuning.breaches-game.breaches}/${game.tuning.breaches} · ${game.breaches} BREACHES`;
@@ -434,6 +473,17 @@ ui.coverBtn.addEventListener('click', () =>
   }
 });
 ui.modeSelect.addEventListener('change', () => selectMode(ui.modeSelect.value));
+ui.stationSelect.addEventListener('change', () => { changeStation(ui.stationSelect.value); updateHud(); });
+ui.stationControls.addEventListener('click', event =>
+{
+  const button = event.target.closest('button[data-station]');
+  if (button && game?.state === 'playing')
+  {
+    changeStation(button.dataset.station);
+    updateHud();
+    ui.skyCanvas.focus({ preventScroll: true });
+  }
+});
 ui.restartBtn.addEventListener('click', () => beginRound());
 ui.missileBtn.addEventListener('click', () =>
 {
@@ -549,7 +599,18 @@ window.addEventListener('keydown', event =>
     game.ducking = true;
     event.preventDefault();
   }
+  if (modeKey === 'b17' && STATIONS[game.station].rotating && game.state === 'playing' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.code))
+  {
+    turretKeys[event.code.slice(5).toLowerCase()] = true;
+    event.preventDefault();
+  }
   if (event.repeat) return;
+  if (modeKey === 'b17' && game.state === 'playing' && /^Digit[1-6]$/.test(event.code))
+  {
+    changeStation(Object.keys(STATIONS)[Number(event.code.slice(-1)) - 1]);
+    updateHud();
+    event.preventDefault();
+  }
   if (event.code === 'KeyM' && modeKey === 'coast')
   {
     secondaryAction();
@@ -561,11 +622,12 @@ window.addEventListener('keydown', event =>
     else if (game.state === 'paused') beginRound(true);
     event.preventDefault();
   }
-  if (event.code === 'KeyR' && modeKey === 'coast' && game.state !== 'ready') beginRound();
+  if (event.code === 'KeyR' && modeKey !== 'trench' && game.state !== 'ready') beginRound();
 });
 window.addEventListener('keyup', event =>
 {
   if (event.code === 'Space') spaceFiring = false;
+  if (event.code.startsWith('Arrow')) turretKeys[event.code.slice(5).toLowerCase()] = false;
   if (event.code === 'KeyC' && modeKey === 'trench' && game) game.ducking = false;
 });
 window.addEventListener('blur', pause);
@@ -606,6 +668,7 @@ try
     {
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
       lastFrame = timestamp;
+      view.updateStationAim?.(aimX, aimY, elapsed, game, turretKeys, reducedMotion.matches);
       const direction = view.directionAt(aimX, aimY);
       if (['playing', 'overrun', 'dying'].includes(game.state))
       {
@@ -632,6 +695,7 @@ try
         if (event.type === 'hit')
         {
           hitUntil = timestamp + 100;
+          if (modeKey === 'b17') view.burst(event.position, false);
           audio.event('hit', event.position, game.time);
         }
         if (event.type === 'destroyed')
@@ -640,6 +704,23 @@ try
           ui.toast.textContent = `+${event.points}  ${event.part === 'head' ? 'HEADSHOT' : 'TARGET DOWN'}`;
           toastUntil = timestamp + 1400;
           if (event.kind !== 'infantry' && event.kind !== 'biplane') audio.event('explosion', event.position, game.time);
+        }
+        if (event.type === 'fighterDown' || event.type === 'bomberLost')
+        {
+          view.burst(event.position, true, event.velocity);
+          audio.event('explosion', event.position, game.time);
+          ui.toast.textContent = event.type === 'bomberLost' ? 'WINGMAN LOST' : event.player ? `+${event.points}  FIGHTER DOWN` : 'FORMATION KILL';
+          toastUntil = timestamp + 1600;
+        }
+        if (event.type === 'fighterInbound')
+        {
+          ui.toast.textContent = `FIGHTERS · ${event.sector.toUpperCase()}`;
+          toastUntil = timestamp + 1800;
+        }
+        if (event.type === 'flakBurst')
+        {
+          view.burst(event.position, false);
+          audio.event('explosion', event.position, game.time);
         }
         if (event.type === 'incoming')
         {

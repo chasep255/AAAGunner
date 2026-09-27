@@ -204,8 +204,23 @@ export class ArenaView
     this.cannons[barrel].userData.shotTime = .06;
   }
 
+  updateRecoil(cannon, kick)
+  {
+    cannon.position.z = kick * .12;
+  }
+
+  get tracerDelay() { return .025; }
+
+  tracerStart(projectile, result)
+  {
+    result.copy(projectile.position).sub(projectile.previous);
+    const distance = result.length();
+    return result.multiplyScalar(distance > 0 ? -Math.min(16, distance * 1.5) / distance : 0).add(projectile.position);
+  }
+
   buildTracers()
   {
+    this.tracerTail = new THREE.Vector3();
     this.tracerPositions = new Float32Array(MAX_SHOTS * 6);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.tracerPositions, 3).setUsage(THREE.DynamicDrawUsage));
@@ -544,22 +559,18 @@ export class ArenaView
     }
   }
 
-  render(game, direction, dt, reducedMotion)
+  updatePlayerTracers(game)
   {
-    this.clock += dt;
-    if (this.waterMaterial) this.waterMaterial.uniforms.time.value = this.clock;
-    if (this.skyMaterial?.uniforms?.time) this.skyMaterial.uniforms.time.value = this.clock;
-    this.updateTargets(game, dt, reducedMotion);
     let n = 0;
     for (const projectile of game.projectiles.slots)
     {
-      if (!projectile.alive || projectile.age < 0.025) continue;
-      const p = projectile.position,
-        prev = projectile.previous;
+      if (!projectile.alive || projectile.age < this.tracerDelay) continue;
+      const p = projectile.position, tail = this.tracerStart(projectile, this.tracerTail);
       const i = n * 6;
-      this.flightDirection.set(p.x - prev.x, p.y - prev.y, p.z - prev.z).normalize();
-      const length = Math.min(16, Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z) * 1.5);
-      this.tracerPositions.set([p.x, p.y, p.z, p.x - this.flightDirection.x * length, p.y - this.flightDirection.y * length, p.z - this.flightDirection.z * length], i);
+      this.flightDirection.copy(p).sub(tail);
+      const length = this.flightDirection.length();
+      this.flightDirection.normalize();
+      this.tracerPositions.set([p.x, p.y, p.z, tail.x, tail.y, tail.z], i);
       this.dummy.position.set(p.x, p.y, p.z);
       this.dummy.scale.setScalar(1);
       this.dummy.updateMatrix();
@@ -580,8 +591,17 @@ export class ArenaView
     this.projectileHeads.instanceMatrix.needsUpdate = true;
     this.projectileStreaks.count = n;
     this.projectileStreaks.instanceMatrix.needsUpdate = true;
+  }
+
+  render(game, direction, dt, reducedMotion)
+  {
+    this.clock += dt;
+    if (this.waterMaterial) this.waterMaterial.uniforms.time.value = this.clock;
+    if (this.skyMaterial?.uniforms?.time) this.skyMaterial.uniforms.time.value = this.clock;
+    this.updateTargets(game, dt, reducedMotion);
+    this.updatePlayerTracers(game);
     const incoming = this.incomingTracers.geometry;
-    n = 0;
+    let n = 0;
     for (const shot of game.enemyShots)
     {
       if (shot.age <= 0 || !shot.launched) continue;
@@ -707,7 +727,7 @@ export class ArenaView
     {
       cannon.userData.shotTime = Math.max(0, cannon.userData.shotTime - dt);
       const kick = cannon.userData.shotTime / .06;
-      cannon.position.z = reducedMotion ? 0 : kick * .12;
+      this.updateRecoil(cannon, reducedMotion ? 0 : kick);
       const flash = cannon.userData.flash;
       flash.visible = kick > .2 && !reducedMotion;
       flash.material.rotation = this.clock * 7;

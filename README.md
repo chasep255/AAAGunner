@@ -1,6 +1,6 @@
 # AAAGunner
 
-A browser defense game with two modes: **Coast**, with quad 20 mm cannons against aircraft, and **Trench**, with a water-cooled Maxim against charging infantry. Both have mouse aiming, three escalating waves over five minutes, three difficulties, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
+A browser defense game with three modes: **Coast**, with quad 20 mm cannons against aircraft; **Trench**, with a water-cooled Maxim against charging infantry; and **B-17 Formation**, with six gun stations, supporting bombers, German fighters, and ground flak. All have mouse aiming, three escalating waves over five minutes, three difficulties, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
 
 Choose **Mode** before deploying. Pause and use **Stop and change settings** to switch modes. The modes share the projectile engine, effects, audio, menus, and controls while keeping their combat rules and scenes separate.
 
@@ -38,6 +38,31 @@ Hold until the five-minute timer expires to win. Infantry stops earn 25 points w
 
 This is an arcade representation. The Maxim profile uses fictional tuning (740 m/s, G1 BC 0.48, 11.3 g, 7.92 mm), with gravity and drag from the shared WASM engine and a 450-metre projectile boundary. These values are not presented as verified historical specifications.
 
+## B-17 Formation
+
+Defend a B-17F-style formation over a moving countryside at 6,000 metres. Four accompanying bombers hold their positions, bank with your pilot’s course changes, and fire aimed bursts at approaching Bf 109 and Fw 190 style fighters. Nearby cloud edges, distant cloud banks, contrails, propellers, engine sound, and subtle vibration convey flight. Ground batteries lead the formation with timed flak bursts. Their black smoke stays at its world position as you fly past; close explosions damage aircraft. Bomber hull damage is permanent for the round, and a lost wingman stops firing.
+
+Choose a gun station before deployment or switch during combat with the numbered buttons or **1–6**:
+
+| Key | Station | Guns |
+| --- | --- | --- |
+| 1 | Tail | Twin .50 cal |
+| 2 | Port waist | Single .50 cal |
+| 3 | Starboard waist | Single .50 cal |
+| 4 | Flexible nose gun | Single .50 cal |
+| 5 | Ball turret | Twin .50 cal |
+| 6 | Upper turret | Twin .50 cal |
+
+The ball and upper turrets traverse through **360 degrees**. Move your mouse toward a screen edge or hold the arrow keys to rotate and elevate; on touch, drag toward an edge. The ball turret covers below the bomber. The upper turret can elevate or depress through the horizon and keeps firing at low angles; its generous depression is a gameplay allowance. Azimuth and elevation appear above the station buttons. Station buttons also show nearby fighter sectors. Each station keeps its own heat and cools while another is in use. Single guns fire 12 rounds per second, twin mounts 24; ammunition is unlimited.
+
+The nose is a flexible gun, not a B-17G chin turret. B-17 nose installations varied, and the later G added a twin-gun powered chin turret. The selected stations are a simplified F-style arrangement, not an exhaustive crew-position simulation. Historical references: [National Park Service B-17 history](https://www.nps.gov/articles/b17g-flying-fortress-no-4483690.htm), [US Air Force Museum upper turret](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/196223/b-17-upper-machine-gun-turret-type-a-1a/).
+
+Fighters approach from multiple directions, including above and below, line up for gun passes, and break away. Their flight velocity and visible heading account for the bomber’s movement: head-on passes close faster than tail chases. Bf 109s take ten hits and Fw 190s take twelve. Damage slows them, produces smoke, and shows remaining airframe strength. A kill starts a falling, smoking descent. The four other bombers have AI gunners; unselected stations on your own bomber are idle. Supporting crews fire simulated rounds that can damage and destroy fighters; their kills count separately from your score. A fighter must remain in your current view for 1.5 seconds before firing at your bomber. Attacks on wingmen can happen outside your view.
+
+Choose **270, 342, or 414 km/h true airspeed** before deploying. Bullets inherit the firing aircraft’s world velocity, then the WASM engine integrates gravity and G1 drag against the local air velocity. The atmosphere uses the density and sound speed at 6,000 metres. Steady wind advects the formation and air mass together; changing gusts add drift. Rounds stay in inertial world coordinates when the formation turns, and are transformed into the current view for collision and rendering. Forward, rearward, and side shots consequently have different flight paths. The optional gold sight ring solves using this same engine and wind field, with a constant-velocity target prediction. Shots launch at the visible barrel tip and share the aircraft’s physics step. Their first visible streak begins at that launch point; receiver recoil leaves the muzzle aligned, and subsequent streaks follow each round independently.
+
+The .50 calibre profile is arcade tuning: 880 m/s muzzle velocity, 46 g projectile, G1 BC 0.62, and a 1.4 km / four-second projectile boundary. Airframe durability, cadence, heat, flight paths, flak, and gun arcs are also game rules. Local propeller wash, wake turbulence, spin drift, and detailed aircraft aerodynamics are not simulated. Physics checks cover inherited velocity, moving-frame equivalence, steady wind, gust drift, altitude, and bullet inertia through turns.
+
 ## Controls
 
 | Action | Control |
@@ -47,7 +72,9 @@ This is an arcade representation. The Maxim profile uses fictional tuning (740 m
 | Fire missile (Coast) | Right mouse or M |
 | Take cover (Trench) | Hold C; right mouse or Take cover toggles it |
 | Pause / resume | P or Escape |
-| Restart | Restart button; R in Coast |
+| Change gun station (B-17) | 1–6 or the station buttons |
+| Rotate ball / upper turret (B-17) | Mouse toward screen edge or arrow keys |
+| Restart | Restart button; R in Coast and B-17 |
 | Change mode or difficulty | Pause, then Stop and change settings |
 
 Touch players can drag to aim and fire, and use the on-screen missile and cover buttons. Volume and the aim-ahead indicator remain adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit, separately for each mode.
@@ -66,6 +93,7 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 
 - `web/src/main.js`: input, menus, HUD, and the fixed-step game loop.
 - `web/src/modes.js`: mode registry and mode-specific presentation and setup.
+- `web/src/b17/`: formation combat, gun stations, flak, moving-aircraft ballistics, aircraft models, and scenery.
 - `web/src/trench/`: infantry and biplane attacks, Maxim, cover, friendly artillery, shared deformable terrain, trench scenery, and blood effects.
 - `web/src/gun-sight.js`: aim-ahead cue using the game’s projectile flight model.
 - `web/src/game.js`: aircraft paths, weapons, health, scoring, and collision detection.
@@ -77,6 +105,10 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 - `.github/workflows/pages.yml`: builds and deploys `dist/` on pushes to `main`.
 
 The game is standalone. Its projectile engine originated in Ballistics Toolkit, with a reduced browser API and the unused wind-generator dependency removed. No adjacent checkout, toolkit server, shared navigation, or external asset CDN is required. Positions use metres: +X right, +Y up, forward −Z. Gameplay advances at 60 fixed steps per second.
+
+## Tests
+
+After building the physics module, run `npm test` (Node.js 22 or newer). The tests use the compiled WASM module and cover airborne ballistics, collisions, multi-hit damage, flak, support kills, all six guns, round lifecycle, and Coast/Trench compatibility.
 
 ## Deployment
 

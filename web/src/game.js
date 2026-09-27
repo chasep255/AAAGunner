@@ -270,7 +270,8 @@ export class ProjectilePool
     ammo = GUN_AMMO,
     speed = GUN_SPEED,
     range = GUN_RANGE,
-    lifetime = GUN_LIFETIME
+    lifetime = GUN_LIFETIME,
+    altitude = null
   } = {})
   {
     this.physics = physics;
@@ -279,13 +280,13 @@ export class ProjectilePool
     this.slots = [];
     // Length is unused with spin disabled; no unpublished dimension is assumed.
     this.base = new physics.Bullet(ammo.mass, ammo.diameter, 0, ammo.bc, physics.DragFunction.G1);
-    this.atmosphere = new physics.Atmosphere();
+    this.atmosphere = altitude === null ? new physics.Atmosphere() : physics.Atmosphere.atAltitude(altitude);
     this.launchPosition = new physics.Vector3D(0, 8, 0);
     this.launchVelocity = new physics.Vector3D(0, 0, 0);
     this.flightTable = buildGunFlightTable(physics, this.base, this.atmosphere, speed, range, lifetime);
   }
 
-  fire(direction, origin = PLAYER_POSITION, barrel = 0)
+  fire(direction, origin = PLAYER_POSITION, barrel = 0, inheritedVelocity = null)
   {
     const physics = this.physics;
     let projectile = this.slots.find(item => !item.alive);
@@ -310,9 +311,9 @@ export class ProjectilePool
     this.launchPosition.x = origin.x;
     this.launchPosition.y = origin.y;
     this.launchPosition.z = origin.z;
-    this.launchVelocity.x = direction.x * speed;
-    this.launchVelocity.y = direction.y * speed;
-    this.launchVelocity.z = direction.z * speed;
+    this.launchVelocity.x = direction.x * speed + (inheritedVelocity?.x || 0);
+    this.launchVelocity.y = direction.y * speed + (inheritedVelocity?.y || 0);
+    this.launchVelocity.z = direction.z * speed + (inheritedVelocity?.z || 0);
     const initial = new physics.Bullet(this.base, this.launchPosition, this.launchVelocity, 0);
     try
     {
@@ -327,6 +328,7 @@ export class ProjectilePool
     Object.assign(projectile.previous, projectile.position);
     projectile.age = 0;
     projectile.alive = true;
+    this.lastFired = projectile;
     return true;
   }
 

@@ -19,7 +19,9 @@ EMSCRIPTEN_BINDINGS(aaagunner_physics)
     .constructor<float, float, float, float, DragFunction>()
     .constructor<const Bullet&, const Vector3D&, const Vector3D&, float>()
     .function("getPosition", &Bullet::getPosition);
-  class_<Atmosphere>("Atmosphere").constructor<>();
+  class_<Atmosphere>("Atmosphere")
+    .constructor<>()
+    .class_function("atAltitude", &Atmosphere::atAltitude);
   class_<Trajectory>("Trajectory")
     .function("getPointCount", &Trajectory::getPointCount)
     .function("clear", &Trajectory::clear);
@@ -27,6 +29,7 @@ EMSCRIPTEN_BINDINGS(aaagunner_physics)
     .constructor<>()
     .function("setInitialBullet", &Simulator::setInitialBullet)
     .function("setAtmosphere", &Simulator::setAtmosphere)
+    .function("setWind", &Simulator::setWind)
     .function("getCurrentBullet", &Simulator::getCurrentBullet)
     .function("simulate", &Simulator::simulate)
     .function("getTrajectory", select_overload<Trajectory&()>(&Simulator::getTrajectory), return_value_policy::reference());
