@@ -2,13 +2,18 @@
 export const ALTITUDE = 6000;
 export const BROWNING = Object.freeze({ mass: .046, diameter: .0127, bc: .62, muzzleVelocity: 880 });
 export const RANGE = 1400;
+export const FORMATION_OFFSETS = Object.freeze([
+  [-43, -9, -122], [53, 15, -165], [-65, 22, 160], [75, -15, 210],
+  [-120, 48, -235], [145, 58, -285], [-180, -45, -55], [190, -62, 70],
+  [-145, 70, 295], [160, 38, 345], [-235, -75, 235], [255, 85, -150]
+]);
 export const STATIONS = Object.freeze({
   tail: { label: 'Tail', key: '1', guns: 2, position: { x: 0, y: 8, z: -13 }, forward: { x: 0, y: 0, z: -1 } },
   port: { label: 'Port waist', key: '2', guns: 1, position: { x: -1.5, y: 8, z: -4 }, forward: { x: -1, y: 0, z: 0 } },
   starboard: { label: 'Starboard waist', key: '3', guns: 1, position: { x: 1.5, y: 8, z: -4 }, forward: { x: 1, y: 0, z: 0 } },
   nose: { label: 'Nose', key: '4', guns: 1, position: { x: 0, y: 8, z: 12 }, forward: { x: 0, y: 0, z: 1 } },
-  ball: { label: 'Ball turret', key: '5', guns: 2, rotating: true, position: { x: 0, y: 5.7, z: 0 }, forward: { x: 0, y: -.72, z: -.694 } },
-  top: { label: 'Upper turret', key: '6', guns: 2, rotating: true, position: { x: 0, y: 10.3, z: 3 }, forward: { x: 0, y: .3, z: -.954 } }
+  ball: { label: 'Ball turret', key: '5', guns: 2, rotating: true, minPitch: -1.48, maxPitch: 0, position: { x: 0, y: 5.7, z: .2 }, forward: { x: 0, y: -.72, z: -.694 } },
+  top: { label: 'Upper turret', key: '6', guns: 2, rotating: true, minPitch: 0, maxPitch: 1.48, position: { x: 0, y: 10.3, z: 3 }, forward: { x: 0, y: .3, z: -.954 } }
 });
 export const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 export const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });

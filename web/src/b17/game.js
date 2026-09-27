@@ -1,18 +1,28 @@
 import { ROUND_SECONDS, sweptHit } from '../game.js';
 import { AirborneProjectiles } from './projectiles.js';
-import { RANGE, STATIONS, FormationFlight, AirborneSight, add, sub, scale, length, unit, dot, clamp, sectorOf } from './flight.js';
+import { RANGE, STATIONS, FORMATION_OFFSETS, FormationFlight, AirborneSight, add, sub, scale, length, unit, dot, clamp, sectorOf } from './flight.js';
 
 const TUNING = {
-  relaxed: { count: 4, interval: 7, damage: 1.8, spread: .021 },
-  arcade: { count: 5, interval: 5, damage: 2.5, spread: .016 },
-  frenzy: { count: 7, interval: 3.5, damage: 3.3, spread: .012 }
+  relaxed: { count: 10, interval: 2.2, damage: 5, spread: .017 },
+  arcade: { count: 14, interval: 1.3, damage: 7, spread: .012 },
+  frenzy: { count: 18, interval: .9, damage: 9, spread: .009 }
 };
 const ZERO = { x: 0, y: 0, z: 0 };
-const MAX_HULL = 120;
+const MAX_HULL = 90;
+const ALLY_HULL = 28;
+const ATTACK_SECTORS = ['top', 'ball', 'port', 'starboard', 'top', 'ball', 'port', 'starboard', 'tail', 'nose'];
+const FIGHTER_VOLUMES = [[ZERO, { x: .95, y: 1, z: 5.1 }],
+  [ZERO, { x: 5.8, y: .4, z: 1.25 }],
+  [{ x: 0, y: .3, z: 3.8 }, { x: 2.3, y: .5, z: 1 }]];
+const BOMBER_VOLUMES = [[ZERO, { x: 1.5, y: 1.7, z: 11.4 }],
+  [ZERO, { x: 15.8, y: .45, z: 3.7 }],
+  [{ x: 0, y: .3, z: 8.3 }, { x: 6, y: .4, z: 2 }],
+  [{ x: 0, y: 2.1, z: 8.1 }, { x: .25, y: 2.7, z: 2.5 }],
+  ...[-10, -5, 5, 10].map(x => [{ x, y: 0, z: -1.5 }, { x: .95, y: .95, z: 2.8 }])];
 
 function localPoint(point, center, target)
 {
-  const p = sub(point, center), h = target.heading, pitch = target.pitch, bank = target.bank;
+  const p = sub(point, center), h = target.heading ?? Math.PI, pitch = target.pitch || 0, bank = target.bank || 0;
   const x = Math.cos(h) * p.x - Math.sin(h) * p.z;
   const z = Math.sin(h) * p.x + Math.cos(h) * p.z;
   const y = Math.cos(pitch) * p.y + Math.sin(pitch) * z;
@@ -20,13 +30,11 @@ function localPoint(point, center, target)
 }
 
 // Swept ellipsoids for the body, main wings and tail, in aircraft coordinates.
-export function fighterHit(a, b, target)
+function airframeHit(a, b, target, volumes)
 {
   const from = localPoint(a, target.previous, target), to = localPoint(b, target.position, target);
   let first = null;
-  for (const [center, size] of [[ZERO, { x: .95, y: 1, z: 5.1 }],
-    [{ x: 0, y: 0, z: 0 }, { x: 5.8, y: .4, z: 1.25 }],
-    [{ x: 0, y: .3, z: 3.8 }, { x: 2.3, y: .5, z: 1 }]])
+  for (const [center, size] of volumes)
   {
     const scaled = p => ({ x: (p.x - center.x) / size.x, y: (p.y - center.y) / size.y, z: (p.z - center.z) / size.z });
     const t = sweptHit(scaled(from), scaled(to), ZERO, ZERO, 1);
@@ -34,6 +42,9 @@ export function fighterHit(a, b, target)
   }
   return first;
 }
+
+export const fighterHit = (a, b, target) => airframeHit(a, b, target, FIGHTER_VOLUMES);
+export const bomberHit = (a, b, target) => airframeHit(a, b, target, BOMBER_VOLUMES);
 
 export class BomberGame
 {
@@ -77,19 +88,19 @@ export class BomberGame
     this.spool = 0;
     this.stationGuns = Object.fromEntries(Object.keys(STATIONS).map(key => [key, { heat: 0, overheated: false }]));
     this.nextBarrel = this.shotClock = this.spawnSector = 0;
-    this.spawnClock = 5;
+    this.spawnClock = this.tuning.interval;
     this.flakClock = 3;
     this.flak = [];
-    this.player = { id: 'player', alive: true, position: { x: 0, y: 8, z: 0 }, previous: { x: 0, y: 8, z: 0 }, radius: 4 };
-    this.allies = [[-43, -9, -122], [53, 15, -165], [-65, 22, 160], [75, -15, 210]].map(([x, y, z], i) => ({
+    this.player = { id: 'player', alive: true, position: { x: 0, y: 8, z: 0 }, previous: { x: 0, y: 8, z: 0 }, radius: 4, heading: Math.PI, pitch: 0, bank: 0 };
+    this.allies = FORMATION_OFFSETS.map(([x, y, z], i) => ({
       id: `bomber-${i}`, position: { x, y: 8 + y, z }, previous: { x, y: 8 + y, z }, home: { x, y: 8 + y, z }, velocity: { ...ZERO },
-      alive: true, health: 75, radius: 5, flash: 0, cooldown: .3 + i * .6, burst: 0, deadAge: 0, aim: { x: 0, y: 0, z: -1 }
+      alive: true, health: ALLY_HULL, maxHealth: ALLY_HULL, radius: 16, flash: 0, hitFlash: 0, cooldown: .3 + i * .17, burst: 0, deadAge: 0, aim: { x: 0, y: 0, z: -1 }, heading: Math.PI, pitch: 0, bank: 0
     }));
     this.state = 'playing';
     this.spawnTarget(this.station, 430);
     this.spawnTarget(this.station, 620);
-    this.spawnTarget(this.station === 'port' ? 'starboard' : 'port', 650);
-    this.spawnTarget(this.station === 'starboard' ? 'nose' : 'starboard', 850);
+    for (const sector of Object.keys(STATIONS)) if (sector !== this.station) this.spawnTarget(sector, 480 + this.random() * 220);
+    while (this.targets.length < this.tuning.count) this.spawnTarget();
   }
 
   get remaining() { return Math.max(0, ROUND_SECONDS - this.time); }
@@ -99,6 +110,7 @@ export class BomberGame
   get regenerating() { return false; }
   get heat() { return this.stationGuns[this.station].heat; }
   get overheated() { return this.stationGuns[this.station].overheated; }
+  get fighterLimit() { return this.tuning.count + (this.wave - 1) * 3; }
 
   setStation(key)
   {
@@ -107,17 +119,22 @@ export class BomberGame
     this.shotClock = this.nextBarrel = this.spool = 0;
   }
 
-  spawnTarget(sector = Object.keys(STATIONS)[this.spawnSector++ % Object.keys(STATIONS).length], initialDistance = null)
+  spawnTarget(sector = ATTACK_SECTORS[this.spawnSector++ % ATTACK_SECTORS.length], initialDistance = null)
   {
-    const forward = STATIONS[sector].forward;
+    let forward = STATIONS[sector].forward;
+    if (sector === 'top' || sector === 'ball')
+    {
+      const yaw = this.random() * Math.PI * 2, pitch = (sector === 'top' ? 1 : -1) * (.55 + this.random() * .4);
+      forward = { x: Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
+    }
     const right = { x: -forward.z, y: 0, z: forward.x };
-    const distance = initialDistance ?? 650 + this.random() * 350;
+    const distance = initialDistance ?? 500 + this.random() * 400;
     const position = add(add(scale(forward, distance), scale(right, (this.random() - .5) * distance * .28)), { x: 0, y: 8 + (this.random() - .5) * distance * .16, z: 0 });
-    const victims = [this.player, ...this.allies.filter(a => a.alive)];
-    const victim = this.random() < .48 ? this.player : victims[Math.floor(this.random() * victims.length)];
+    const victims = this.allies.filter(a => a.alive);
+    const victim = this.random() < .25 || !victims.length ? this.player : victims[Math.floor(this.random() * victims.length)];
     const direction = unit(sub(victim.position, position));
     const health = this.nextId % 2 ? 12 : 10;
-    this.targets.push({ id: ++this.nextId, kind: this.nextId % 2 ? 'bf109' : 'fw190', alive: true, health, maxHealth: health, hitFlash: 0, position, previous: { ...position },
+    this.targets.push({ id: ++this.nextId, sector, kind: this.nextId % 2 ? 'bf109' : 'fw190', alive: true, health, maxHealth: health, hitFlash: 0, position, previous: { ...position },
       velocity: sub(scale(direction, 175), { x: 0, y: 0, z: this.airspeed }), worldVelocity: add(this.flight.rotate(scale(direction, 175)), this.flight.meanWind), heading: Math.atan2(-direction.x, -direction.z), pitch: Math.asin(direction.y), bank: 0,
       direction, victim, phase: 'approach', age: 0, phaseAge: 0, seen: 0, cooldown: 1, muzzleFlash: 0, burst: 0, deadAge: 0,
       side: this.random() < .5 ? -1 : 1 });
@@ -151,17 +168,21 @@ export class BomberGame
       target.pitch -= dt * .15;
       return;
     }
-    if (!target.victim.alive) target.victim = this.player;
+    if (!target.victim.alive)
+    {
+      const survivors = this.allies.filter(a => a.alive);
+      target.victim = survivors.length && this.random() > .25 ? survivors[Math.floor(this.random() * survivors.length)] : this.player;
+    }
     const offset = sub(target.victim.position, target.position), distance = length(offset);
-    if (target.phase === 'approach' && (distance < 125 || target.phaseAge > 22))
+    if (target.phase === 'approach' && (distance < 85 || target.phaseAge > 22))
     {
       target.phase = 'break';
       target.phaseAge = 0;
       target.escape = unit(add(scale(target.direction, .35), { x: target.direction.z * target.side, y: target.side * .3, z: -target.direction.x * target.side }));
     }
-    const desired = target.phase === 'approach' ? unit(sub(offset, scale(target.velocity, distance / 850))) : target.escape;
+    const desired = target.phase === 'approach' ? unit(add(offset, scale(sub(target.victim.velocity || ZERO, target.velocity), distance / 760))) : target.escape;
     const oldHeading = target.heading;
-    target.direction = unit(add(target.direction, scale(sub(desired, target.direction), Math.min(1, dt * .6))));
+    target.direction = unit(add(target.direction, scale(sub(desired, target.direction), Math.min(1, dt * 1.2))));
     // Aircraft nose follows its air velocity, not its velocity relative to our
     // camera. A head-on fighter closes much faster than one chasing the tail.
     const enginePower = .78 + .22 * target.health / target.maxHealth;
@@ -177,13 +198,13 @@ export class BomberGame
     target.cooldown -= dt;
     // Other stations have their own sectors. Off-screen fighters may attack
     // wingmen, but cannot damage the player without a visible reaction window.
-    const canAttack = target.phase === 'approach' && distance < 680 && distance > 140 &&
+    const canAttack = target.phase === 'approach' && distance < 850 && distance > 95 &&
       dot(target.direction, desired) > .995 && (target.victim !== this.player || target.seen > 1.5);
     if (!canAttack) { target.burst = 0; return; }
     if (target.cooldown > 0) return;
     if (!target.burst)
     {
-      target.burst = 8;
+      target.burst = 10;
       this.events.push({ type: 'planeFire', position: { ...target.position } });
     }
     const inherited = target.velocity;
@@ -197,10 +218,11 @@ export class BomberGame
       shot.launched = true;
       shot.victim = target.victim;
       shot.damage = this.tuning.damage;
+      shot.deferAdvance = true;
     }
     target.muzzleFlash = .13;
     target.burst--;
-    target.cooldown = target.burst ? .12 : 2.5 + this.random();
+    target.cooldown = target.burst ? .1 : 1.6 + this.random();
   }
 
   updateAllies(dt)
@@ -210,14 +232,20 @@ export class BomberGame
     {
       ally.previous = { ...ally.position };
       ally.flash = Math.max(0, ally.flash - dt);
+      ally.hitFlash = Math.max(0, ally.hitFlash - dt);
       if (!ally.alive)
       {
         ally.deadAge += dt;
         ally.position.y -= (12 + ally.deadAge * 6) * dt;
         ally.position.z -= 25 * dt;
+        ally.bank += dt * .15;
+        ally.pitch -= dt * .035;
         continue;
       }
-      ally.position = add(ally.home, { x: Math.sin(this.time * .22 + ally.home.z) * 2, y: Math.sin(this.time * .4 + ally.home.x) * 1.5, z: 0 });
+      const damage = 1 - ally.health / ally.maxHealth;
+      const slot = add(ally.home, { x: Math.sin(this.time * .37 + ally.home.z) * 7, y: Math.sin(this.time * .55 + ally.home.x) * 4 - damage * 10, z: Math.sin(this.time * .3 + ally.home.x) * 8 - damage * 24 });
+      ally.position = add(ally.position, scale(sub(slot, ally.position), Math.min(1, dt * .8)));
+      ally.bank = -this.flight.bank + Math.sin(this.time * .6 + ally.home.x) * (.045 + damage * .15);
       ally.velocity = scale(sub(ally.position, ally.previous), 1 / dt);
       ally.cooldown -= dt;
       if (ally.cooldown > 0) continue;
@@ -231,13 +259,13 @@ export class BomberGame
       ally.aim = unit(sub(aim, ally.position));
       const origin = add(add(ally.position, { x: 0, y: 2, z: 0 }), scale(ally.aim, 2));
       // Supporting crews avoid firing through another bomber.
-      if ([this.player, ...this.allies].some(b => b !== ally && b.alive && sweptHit(origin, target.position, b.position, b.position, b.radius + 2) !== null)) continue;
+      if ([this.player, ...this.allies].some(b => b !== ally && b.alive && bomberHit(origin, target.position, { ...b, previous: b.position }) !== null)) continue;
       if (!ally.burst)
       {
         ally.burst = 6;
         this.events.push({ type: 'allyShot', position: { ...origin } });
       }
-      this.support.fire(this.spread(ally.aim, .009 + distance * .000008), origin, 0, ally.velocity);
+      if (this.support.fire(this.spread(ally.aim, .009 + distance * .000008), origin, 0, ally.velocity)) this.support.lastFired.deferAdvance = true;
       ally.flash = .1;
       ally.burst--;
       ally.cooldown = ally.burst ? .14 : 2.1 + this.random() * 1.5;
@@ -267,12 +295,31 @@ export class BomberGame
     this.events.push({ type: 'fighterDown', player, points, position: { ...target.position }, velocity: { ...target.velocity } });
   }
 
+  damageBomber(bomber, damage, friendly = false, position = bomber.position)
+  {
+    if (!bomber.alive || damage <= 0) return;
+    if (bomber === this.player)
+    {
+      this.health = Math.max(0, this.health - damage);
+      this.events.push({ type: 'damage' });
+      if (!this.health) bomber.alive = false;
+      return;
+    }
+    bomber.health = Math.max(0, bomber.health - damage);
+    bomber.hitFlash = .18;
+    if (friendly) this.events.push({ type: 'friendlyHit', position: { ...position }, health: bomber.health / bomber.maxHealth * 100 });
+    if (bomber.health > 0) return;
+    bomber.alive = false;
+    bomber.flash = bomber.burst = 0;
+    this.events.push({ type: 'bomberLost', friendly, position: { ...bomber.position }, velocity: { ...bomber.velocity } });
+  }
+
   resolveRounds(pool, player, dt)
   {
     pool.advance(dt);
     for (const shot of pool.slots)
     {
-      if (!shot.alive) continue;
+      if (!shot.alive || shot.age <= 0) continue;
       let victim = null, first = Infinity;
       for (const target of this.targets)
       {
@@ -280,7 +327,19 @@ export class BomberGame
         const hit = fighterHit(shot.previous, shot.position, target);
         if (hit !== null && hit < first) { first = hit; victim = target; }
       }
-      if (victim) { shot.alive = false; this.damageFighter(victim, player); }
+      let friendly = false;
+      if (player) for (const bomber of this.allies)
+      {
+        if (!bomber.alive) continue;
+        const hit = bomberHit(shot.previous, shot.position, bomber);
+        if (hit !== null && hit < first) { first = hit; victim = bomber; friendly = true; }
+      }
+      if (victim)
+      {
+        shot.alive = false;
+        if (friendly) this.damageBomber(victim, 2, true, add(shot.previous, scale(sub(shot.position, shot.previous), first)));
+        else this.damageFighter(victim, player);
+      }
       if (shot.age > 4 || length(shot.position) > RANGE) shot.alive = false;
     }
   }
@@ -305,7 +364,8 @@ export class BomberGame
     {
       // Ground batteries lead the formation. Bursts stay fixed in world space
       // after detonation, so banking aircraft fly past the expanding black smoke.
-      const victim = this.random() < .5 ? this.player : this.allies[Math.floor(this.random() * this.allies.length)];
+      const survivors = this.allies.filter(a => a.alive);
+      const victim = this.random() < .35 || !survivors.length ? this.player : survivors[Math.floor(this.random() * survivors.length)];
       const delay = 1.5;
       const aim = add(this.flight.toWorld(victim.position), scale(this.flight.groundVelocity, delay));
       const angle = this.random() * Math.PI * 2, miss = 35 + this.random() * 150;
@@ -326,17 +386,7 @@ export class BomberGame
           if (!bomber.alive) continue;
           const distance = length(sub(burst.position, bomber.position));
           if (distance >= 48) continue;
-          const damage = (1 - distance / 48) * 9;
-          if (bomber === this.player)
-          {
-            this.health = Math.max(0, this.health - damage);
-            this.events.push({ type: 'damage' });
-          }
-          else
-          {
-            bomber.health = Math.max(0, bomber.health - damage);
-            if (!bomber.health) { bomber.alive = false; bomber.flash = 0; this.events.push({ type: 'bomberLost', position: { ...bomber.position } }); }
-          }
+          this.damageBomber(bomber, (1 - distance / 48) * 14);
         }
       }
       burst.life -= dt;
@@ -352,8 +402,7 @@ export class BomberGame
       if (gun.heat < .32) gun.overheated = false;
     }
     const gun = this.stationGuns[this.station], station = STATIONS[this.station];
-    const inArc = this.station === 'top' || (this.station === 'ball' ? direction.y < -.015 : dot(direction, station.forward) > .45);
-    const canFire = firing && !gun.overheated && inArc;
+    const canFire = firing && !gun.overheated;
     this.spool = canFire ? 1 : 0;
     if (canFire)
     {
@@ -386,16 +435,18 @@ export class BomberGame
     this.updatePlayerGun(dt, direction, firing);
     this.time += dt;
     this.flight.advance(dt, this.time);
+    this.player.bank = -this.flight.bank;
     this.updateFlak(dt);
     if (this.health <= 0) { this.player.alive = false; this.finish('flak'); return; }
     if (this.time - this.lastKill > 5) this.combo = 0;
     this.targets.forEach(t => this.moveTarget(t, dt));
     this.updateAllies(dt);
-    this.targets = this.targets.filter(t => t.alive ? !(t.phase === 'break' && t.phaseAge > 12) : t.deadAge < 7);
+    this.targets = this.targets.filter(t => t.alive ? !(t.phase === 'break' && (t.phaseAge > 5 || length(t.position) > 1600)) : t.deadAge < 7);
     this.spawnClock -= dt;
-    if (this.spawnClock <= 0 && this.targets.filter(t => t.alive).length < this.tuning.count + this.wave - 1)
+    if (this.spawnClock <= 0 && this.targets.filter(t => t.alive).length < this.fighterLimit)
     {
-      this.spawnTarget();
+      const reinforcements = Math.min(3, this.fighterLimit - this.targets.filter(t => t.alive).length);
+      for (let i = 0; i < reinforcements; i++) this.spawnTarget();
       this.spawnClock = this.tuning.interval;
     }
     this.resolveRounds(this.projectiles, true, dt);
@@ -405,25 +456,11 @@ export class BomberGame
     {
       if (!shot.alive) continue;
       const victim = shot.victim;
-      if (victim?.alive && sweptHit(shot.previous, shot.position, victim.previous, victim.position, victim.radius) !== null)
+      if (shot.age > 0 && victim?.alive && bomberHit(shot.previous, shot.position, victim) !== null)
       {
         shot.alive = false;
-        if (victim === this.player)
-        {
-          this.health = Math.max(0, this.health - shot.damage);
-          this.events.push({ type: 'damage' });
-          if (!this.health) { this.player.alive = false; this.finish('shot-down'); return; }
-        }
-        else
-        {
-          victim.health = Math.max(0, victim.health - shot.damage);
-          if (!victim.health)
-          {
-            victim.alive = false;
-            victim.flash = 0;
-            this.events.push({ type: 'bomberLost', position: { ...victim.position } });
-          }
-        }
+        this.damageBomber(victim, shot.damage);
+        if (!this.health) { this.finish('shot-down'); return; }
       }
       if (shot.age > 4 || length(shot.position) > 1800) shot.alive = false;
     }

@@ -334,8 +334,9 @@ function secondaryAction()
 
 function positionReticle()
 {
-  ui.reticle.style.left = `${(aimX + 1) * 50}%`;
-  ui.reticle.style.top = `${(1 - aimY) * 50}%`;
+  const point = view?.reticleAt?.(aimX, aimY) || { x: aimX, y: aimY };
+  ui.reticle.style.left = `${(point.x + 1) * 50}%`;
+  ui.reticle.style.top = `${(1 - point.y) * 50}%`;
 }
 
 function changeStation(key)
@@ -420,7 +421,7 @@ function updateHud()
   {
     const turret = view.turretAngles[game.station];
     ui.stationControls.querySelector(':scope > span').textContent = turret ? `MOUSE EDGES / ARROWS · AZ ${Math.round((turret.yaw * 180 / Math.PI + 360) % 360)}° · EL ${Math.round(turret.pitch * 180 / Math.PI)}°` : 'GUN STATION · THREATS';
-    ui.wingmenStatus.textContent = `FORMATION ${1 + game.allies.filter(a => a.alive).length}/5 · ALLIED KILLS ${game.allyKills}`;
+    ui.wingmenStatus.textContent = `FORMATION ${Number(game.player.alive) + game.allies.filter(a => a.alive).length}/${game.allies.length + 1} · ALLIED KILLS ${game.allyKills}`;
     const wind = game.flight.worldWind(game.time, { x: 0, y: 0, z: 0 });
     ui.flightStatus.textContent = `TAS ${Math.round(game.flight.airspeed * 3.6)} KM/H · 6,000 M · WIND ${Math.round(Math.hypot(wind.x, wind.z) * 3.6)} KM/H · ${Math.abs(game.flight.bank) < .04 ? 'LEVEL FLIGHT' : `BANK ${game.flight.bank > 0 ? 'LEFT' : 'RIGHT'} ${Math.round(Math.abs(game.flight.bank) * 180 / Math.PI)}°`}`;
     ui.healthStatus.textContent = incoming ? 'INCOMING FIRE' : game.healthPercent < 100 ? 'HULL DAMAGED' : 'FORMATION READY';
@@ -669,6 +670,7 @@ try
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
       lastFrame = timestamp;
       view.updateStationAim?.(aimX, aimY, elapsed, game, turretKeys, reducedMotion.matches);
+      if (modeKey === 'b17') positionReticle();
       const direction = view.directionAt(aimX, aimY);
       if (['playing', 'overrun', 'dying'].includes(game.state))
       {
@@ -698,6 +700,13 @@ try
           if (modeKey === 'b17') view.burst(event.position, false);
           audio.event('hit', event.position, game.time);
         }
+        if (event.type === 'friendlyHit')
+        {
+          view.burst(event.position, false);
+          audio.event('shellImpact', event.position, game.time);
+          ui.toast.textContent = `FRIENDLY HIT · B-17 HULL ${Math.ceil(event.health)}%`;
+          toastUntil = timestamp + 1200;
+        }
         if (event.type === 'destroyed')
         {
           if (event.kind !== 'infantry' && event.kind !== 'biplane') view.burst(event.position, true, event.velocity);
@@ -709,12 +718,12 @@ try
         {
           view.burst(event.position, true, event.velocity);
           audio.event('explosion', event.position, game.time);
-          ui.toast.textContent = event.type === 'bomberLost' ? 'WINGMAN LOST' : event.player ? `+${event.points}  FIGHTER DOWN` : 'FORMATION KILL';
+          ui.toast.textContent = event.type === 'bomberLost' ? event.friendly ? 'WINGMAN LOST · FRIENDLY FIRE' : 'WINGMAN LOST' : event.player ? `+${event.points}  FIGHTER DOWN` : 'FORMATION KILL';
           toastUntil = timestamp + 1600;
         }
         if (event.type === 'fighterInbound')
         {
-          ui.toast.textContent = `FIGHTERS · ${event.sector.toUpperCase()}`;
+          ui.toast.textContent = `FIGHTERS · ${{ top: 'ABOVE', ball: 'BELOW' }[event.sector] || event.sector.toUpperCase()}`;
           toastUntil = timestamp + 1800;
         }
         if (event.type === 'flakBurst')

@@ -3,6 +3,7 @@ import
   GUN_AMMO
 }
 from './game.js';
+import { FORMATION_OFFSETS } from './b17/flight.js';
 export const MODES = {
   b17:
   {
@@ -19,7 +20,7 @@ export const MODES = {
     actionHint: 'Press 1–6 to change gun position. Move the mouse to the edges or use arrow keys to rotate the ball and upper turrets',
     heatLabel: 'BARREL HEAT',
     stat: 'FIGHTERS',
-    fact: '4 WINGMEN',
+    fact: `${FORMATION_OFFSETS.length} WINGMEN`,
     location: 'OVER EUROPE · 6,000 M',
     defeatTitle: 'Bomber lost',
     gunSound: 'browning',
@@ -29,7 +30,7 @@ export const MODES = {
     },
     success(game)
     {
-      return `Formation defended with ${Math.ceil(game.healthPercent)}% hull and ${game.allies.filter(a => a.alive).length}/4 wingmen remaining. Allied crews shot down ${game.allyKills} fighters.`;
+      return `Formation defended with ${Math.ceil(game.healthPercent)}% hull and ${game.allies.filter(a => a.alive).length}/${game.allies.length} wingmen remaining. Allied crews shot down ${game.allyKills} fighters.`;
     },
     async create(physics, canvas)
     {

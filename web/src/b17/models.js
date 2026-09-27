@@ -37,14 +37,17 @@ export function buildWarbird(view, bomber = false, variant = 'bf109')
   canopy.scale.set(bomber ? 1.24 : .58, bomber ? 1.1 : .65, bomber ? 2 : 1.5);
   if (bomber)
   {
+    const top = new THREE.Group(), ball = new THREE.Group();
+    group.add(top, ball);
+    group.userData.stationParts = { top, ball };
     mesh(new THREE.SphereGeometry(1, 16, 12), glass, 0, .05, -9.8).scale.set(1.05, 1.15, 1.6);
-    mesh(new THREE.SphereGeometry(.85, 14, 8), dark, 0, 1.75, -3);
-    mesh(new THREE.SphereGeometry(.8, 12, 8), glass, 0, -1.55, -.2);
+    mesh(new THREE.SphereGeometry(.85, 14, 8), dark, 0, 1.75, -3, top);
+    mesh(new THREE.SphereGeometry(.8, 12, 8), glass, 0, -1.55, -.2, ball);
     mesh(new THREE.CylinderGeometry(.045, .045, 1.3, 8), dark, .2, .1, -11.1).rotation.x = Math.PI / 2;
     for (const x of [-.3, .3])
     {
-      mesh(new THREE.CylinderGeometry(.06, .06, 1.8, 8), dark, x, 2, -4.15).rotation.x = Math.PI / 2;
-      mesh(new THREE.CylinderGeometry(.06, .06, 1.5, 8), dark, x, -1.9, -1.05).rotation.x = Math.PI / 2;
+      mesh(new THREE.CylinderGeometry(.06, .06, 1.8, 8), dark, x, 2, -4.15, top).rotation.x = Math.PI / 2;
+      mesh(new THREE.CylinderGeometry(.06, .06, 1.5, 8), dark, x, -1.9, -1.05, ball).rotation.x = Math.PI / 2;
     }
   }
   const span = bomber ? 15.8 : 5.8, root = bomber ? 3.7 : 1.25;

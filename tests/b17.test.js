@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import createPhysics from '../build/physics.js';
-import { BomberGame, fighterHit } from '../web/src/b17/game.js';
-import { FormationFlight, STATIONS, BROWNING, ALTITUDE, sub, add, scale, length, unit } from '../web/src/b17/flight.js';
+import { BomberGame, fighterHit, bomberHit } from '../web/src/b17/game.js';
+import { FormationFlight, STATIONS, FORMATION_OFFSETS, BROWNING, ALTITUDE, sub, add, scale, length, unit } from '../web/src/b17/flight.js';
 import { AirborneProjectiles } from '../web/src/b17/projectiles.js';
 import { ArcadeGame } from '../web/src/game.js';
 import { TrenchGame } from '../web/src/trench/game.js';
@@ -11,6 +11,7 @@ import * as THREE from '../web/vendor/three/three.module.js';
 
 register('./three-loader.js', import.meta.url);
 const { BomberView } = await import('../web/src/b17/scene.js');
+const { buildWarbird } = await import('../web/src/b17/models.js');
 
 const physics = await createPhysics();
 const zero = { x: 0, y: 0, z: 0 };
@@ -54,7 +55,8 @@ test('turret camera, reticle and muzzle stay aligned through traverse and bankin
       const ray = view.directionAt(x, y).clone();
       const muzzle = view.muzzlePosition(0, ray).clone();
       const projected = muzzle.addScaledVector(ray, 500).project(view.camera);
-      assert.ok(Math.abs(projected.x - x) < .004 && Math.abs(projected.y - y) < .004, `${station}: muzzle ray misses the sight`);
+      const reticle = view.reticleAt(x, y);
+      assert.ok(Math.abs(projected.x - reticle.x) < .004 && Math.abs(projected.y - reticle.y) < .004, `${station}: muzzle ray misses the sight`);
     }
   }
 });
@@ -79,7 +81,61 @@ test('ball and upper turrets traverse fully and respect elevation limits', () =>
   assert.equal(view.turretAngles.top.pitch, 1.48);
   keys.down = true; keys.up = false;
   for (let i = 0; i < 250; i++) view.updateStationAim(0, 0, step, game, keys, true);
-  assert.equal(view.turretAngles.top.pitch, -1.48, 'upper turret can track below the horizon');
+  assert.equal(view.turretAngles.top.pitch, 0, 'upper turret stops at its lower mechanical limit');
+  game.station = 'ball'; keys.down = false; keys.up = true;
+  for (let i = 0; i < 250; i++) view.updateStationAim(0, 0, step, game, keys, true);
+  assert.equal(view.turretAngles.ball.pitch, 0, 'ball turret stops at its upper mechanical limit');
+});
+
+test('mouse aim respects turret stops during banks, and the ball view clears the exterior shell', () => {
+  const view = gunView();
+  view.ownBomber = buildWarbird(view, true);
+  view.ownBomber.position.set(0, 8, 0);
+  const keys = { left: false, right: false, up: false, down: false };
+  const roll = new THREE.Vector3(0, 0, 1);
+  for (const station of ['ball', 'top']) for (const bank of [-.23, 0, .23])
+    for (const pitch of [STATIONS[station].minPitch, STATIONS[station].maxPitch])
+      for (let yaw = -Math.PI; yaw < Math.PI; yaw += Math.PI / 4)
+  {
+    Object.assign(view.turretAngles[station], { yaw, pitch });
+    view.ownBomber.rotation.set(0, Math.PI, -bank);
+    view.updateStationAim(0, 0, 0, { station, state: 'playing', flight: { bank }, spool: 0 }, keys, true);
+    assert.equal(view.ownBomber.userData.stationParts[station].visible, false);
+    for (const [x, y] of [[0, 0], [-.98, .98], [.98, -.98], [0, .98], [0, -.98]])
+    {
+      const direction = view.directionAt(x, y).clone();
+      const local = direction.clone().applyAxisAngle(roll, -bank), elevation = Math.asin(local.y);
+      assert.ok(elevation >= STATIONS[station].minPitch - 1e-8 && elevation <= STATIONS[station].maxPitch + 1e-8);
+      if (station === 'ball')
+      {
+        view.ownBomber.updateMatrixWorld(true);
+        const ray = new THREE.Raycaster(view.camera.position, direction, .1, 1);
+        ray.camera = view.camera;
+        const hits = ray.intersectObject(view.ownBomber, true).filter(hit => {
+          for (let object = hit.object; object; object = object.parent) if (!object.visible) return false;
+          return true;
+        });
+        assert.equal(hits.length, 0, 'ball turret view must not pass through its own shell or belly');
+      }
+    }
+  }
+});
+
+test('heat illuminates barrel jackets and muzzles without heating receiver or fittings', () => {
+  const view = gunView();
+  view.barrelMaterial.emissive.setRGB(.5, .08, 0);
+  let hot = 0;
+  view.gun.traverse(object => {
+    if (!object.isMesh || !object.material.emissive) return;
+    if (object.material.emissive.r > 0)
+    {
+      hot++;
+      assert.equal(object.geometry.type, 'CylinderGeometry');
+      assert.ok(object.position.z < -.5);
+    }
+  });
+  assert.equal(hot, 4, 'two jackets and two muzzles glow');
+  assert.equal(view.cannons[0].userData.bolt.material.emissive.r, 0);
 });
 
 test('B-17 tracers emerge from each barrel at 60, 30 and 20 fps without a recoil offset', () => {
@@ -136,18 +192,20 @@ test('new waist rounds share the bomber time step instead of jumping forward wit
   finally { game.dispose(); }
 });
 
-test('upper turret fires at level and downward angles while heat still limits fire', () => {
+test('both turrets keep firing at their stops and through banks; heat still limits fire', () => {
   const game = new BomberGame(physics, random());
   try
   {
-    game.start('relaxed'); game.setStation('top');
+    game.start('relaxed');
     game.targets = []; game.spawnClock = game.flakClock = 100;
-    for (const y of [-.95, -.2, 0, .2])
+    for (const station of ['ball', 'top']) for (const y of [-.95, -.2, 0, .2])
     {
+      game.setStation(station);
       const before = game.shots, direction = unit({ x: .4, y, z: -.5 });
       for (let i = 0; i < 10; i++) game.update(step, direction, true);
       assert.ok(game.shots > before, `no firing lockout at elevation ${y}`);
     }
+    game.setStation('top');
     game.stationGuns.top.heat = 1; game.stationGuns.top.overheated = true;
     const before = game.shots;
     game.update(step, { x: 0, y: -.5, z: -.866 }, true);
@@ -223,6 +281,65 @@ test('wing and fuselage collisions reject empty space around a fighter', () => {
   assert.equal(fighterHit({ x: 4, y: 3, z: -20 }, { x: 4, y: 3, z: 20 }, target), null);
 });
 
+test('bomber collision includes outer wings but rejects the empty space above them', () => {
+  const bomber = { position: { ...zero }, previous: { ...zero }, heading: Math.PI, pitch: 0, bank: 0 };
+  assert.notEqual(bomberHit({ x: 12, y: 0, z: -30 }, { x: 12, y: 0, z: 30 }, bomber), null);
+  assert.equal(bomberHit({ x: 12, y: 3, z: -30 }, { x: 12, y: 3, z: 30 }, bomber), null);
+});
+
+test('friendly rounds hit the first bomber, damage it, and can destroy it without awarding fighter points', () => {
+  const game = new BomberGame(physics, random());
+  try
+  {
+    game.start('arcade');
+    const ally = game.allies[0], fighter = game.targets[0];
+    ally.position = { x: 0, y: 8, z: -45 }; ally.previous = { ...ally.position };
+    fighter.position = { x: 0, y: 8, z: -85 }; fighter.previous = { ...fighter.position };
+    game.allies = [ally]; game.targets = [fighter]; game.events.length = 0;
+    const fire = () => {
+      game.projectiles.fire({ x: 0, y: 0, z: -1 }, { x: 0, y: 8, z: -15 });
+      const round = game.projectiles.lastFired;
+      for (let i = 0; i < 20 && round.alive; i++) game.resolveRounds(game.projectiles, true, step);
+      assert.equal(round.alive, false);
+    };
+    fire();
+    assert.ok(ally.alive && ally.health < ally.maxHealth);
+    assert.equal(fighter.health, fighter.maxHealth, 'the friendly airframe shields the fighter behind it');
+    for (let i = 0; i < 30 && ally.alive; i++) fire();
+    assert.equal(ally.alive, false);
+    assert.equal(ally.health, 0);
+    assert.equal(ally.flash, 0);
+    assert.equal(game.score + game.destroyed + game.allyKills + game.hits, 0);
+    assert.equal(game.events.filter(e => e.type === 'bomberLost' && e.friendly).length, 1);
+    game.damageBomber(ally, 20, true);
+    assert.equal(game.events.filter(e => e.type === 'bomberLost').length, 1);
+    assert.ok(game.events.some(e => e.type === 'friendlyHit'));
+  }
+  finally { game.dispose(); }
+});
+
+test('larger formations start under attacks from every sector with emphasis above, below and to the sides', () => {
+  const game = new BomberGame(physics, random());
+  try
+  {
+    for (const difficulty of ['relaxed', 'arcade', 'frenzy'])
+    {
+      game.start(difficulty);
+      assert.equal(game.allies.length, 12);
+      assert.ok(game.targets.length >= 10 && game.targets.length <= game.fighterLimit);
+      for (const sector of Object.keys(STATIONS)) assert.ok(game.targets.some(t => t.sector === sector));
+      game.targets = [];
+      for (let i = 0; i < 100; i++) game.spawnTarget();
+      const counts = Object.fromEntries(Object.keys(STATIONS).map(sector => [sector, game.targets.filter(t => t.sector === sector).length]));
+      for (const sector of ['top', 'ball', 'port', 'starboard']) assert.equal(counts[sector], 20);
+      assert.equal(counts.tail + counts.nose, 20);
+      assert.ok(game.targets.filter(t => t.sector === 'top').every(t => t.position.y > 200));
+      assert.ok(game.targets.filter(t => t.sector === 'ball').every(t => t.position.y < -200));
+    }
+  }
+  finally { game.dispose(); }
+});
+
 test('support rounds collide and score an allied kill without awarding player points', () => {
   const game = new BomberGame(physics, random());
   try
@@ -271,11 +388,11 @@ test('flak detonates in world space and can damage the player and a wingman', ()
     for (const bomber of [game.player, game.allies[0]])
       game.flak.push({ worldPosition: game.flight.toWorld(bomber.position), delay: .01, life: 6, exploded: false });
     game.updateFlak(step);
-    assert.equal(game.health, 111);
-    assert.equal(game.allies[0].health, 66);
+    assert.equal(game.health, 76);
+    assert.equal(game.allies[0].health, 14);
     assert.equal(game.events.filter(e => e.type === 'flakBurst').length, 2);
     game.updateFlak(step);
-    assert.equal(game.health, 111, 'a burst must not damage twice');
+    assert.equal(game.health, 76, 'a burst must not damage twice');
   }
   finally { game.dispose(); }
 });
@@ -317,7 +434,7 @@ test('pause freezes flak, flight, damage and heat; restart restores formation', 
     game.resume(); game.allies[0].alive = false; game.health = 30;
     game.start('arcade');
     assert.equal(game.healthPercent, 100);
-    assert.equal(game.allies.filter(a => a.alive).length, 4);
+    assert.equal(game.allies.filter(a => a.alive).length, FORMATION_OFFSETS.length);
     assert.equal(game.flight.heading, 0);
     assert.equal(game.flak.length, 0);
     assert.equal(game.support.slots.filter(s => s.alive).length, 0);
@@ -326,7 +443,9 @@ test('pause freezes flak, flight, damage and heat; restart restores formation', 
 });
 
 test('full-round simulation has flak, allied kills, damage and bounded pools', () => {
-  const game = new BomberGame(physics, random(), () => true);
+  // Keep player-directed attackers out of view to exercise all three waves.
+  // Enemy attacks on the other bombers still run normally.
+  const game = new BomberGame(physics, random(), () => false);
   try
   {
     game.start('arcade');
@@ -337,12 +456,15 @@ test('full-round simulation has flak, allied kills, damage and bounded pools', (
       flak += game.events.filter(e => e.type === 'flakBurst').length;
       hit ||= game.healthPercent < 100;
       maxTargets = Math.max(maxTargets, game.targets.length);
+      assert.ok(game.targets.filter(t => t.alive).length <= game.fighterLimit);
       assert.ok(game.enemyShots.length <= 128 && game.flak.length <= 12);
       game.events.length = 0;
     }
     assert.equal(game.state, 'ended');
+    assert.ok(game.time >= 299);
+    assert.ok(game.allies.some(a => !a.alive), 'enemy fire must be capable of bringing down wingmen');
     assert.ok(flak > 5 && game.allyKills > 0 && hit);
-    assert.ok(maxTargets <= 16);
+    assert.ok(maxTargets <= game.fighterLimit + 10);
     for (const pool of [game.projectiles, game.support, game.hostile]) assert.ok(pool.slots.length <= 320);
   }
   finally { game.dispose(); }

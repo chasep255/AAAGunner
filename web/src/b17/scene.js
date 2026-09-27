@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { ArenaView } from '../graphics/scene.js';
-import { STATIONS } from './flight.js';
+import { STATIONS, FORMATION_OFFSETS, clamp } from './flight.js';
 import { buildWarbird, flash } from './models.js';
+
+const ROLL_AXIS = new THREE.Vector3(0, 0, 1);
+const AIRCRAFT_CENTER = new THREE.Vector3(0, 8, 0);
 
 export class BomberView extends ArenaView
 {
@@ -123,7 +126,7 @@ export class BomberView extends ArenaView
     this.supportLines.geometry.setDrawRange(0, 0);
     this.supportLines.frustumCulled = false;
     this.scene.add(this.supportLines);
-    this.contrails = new THREE.InstancedMesh(new THREE.CylinderGeometry(.22, 1.3, 1, 6), new THREE.MeshBasicMaterial({ color: 0xecf1f1, transparent: true, opacity: .17, depthWrite: false }), 16);
+    this.contrails = new THREE.InstancedMesh(new THREE.CylinderGeometry(.22, 1.3, 1, 6), new THREE.MeshBasicMaterial({ color: 0xecf1f1, transparent: true, opacity: .17, depthWrite: false }), FORMATION_OFFSETS.length * 4);
     this.contrails.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.contrails.frustumCulled = false;
     this.scene.add(this.contrails);
@@ -169,15 +172,17 @@ export class BomberView extends ArenaView
     const steel = new THREE.MeshStandardMaterial({ color: 0x4f5753, metalness: .75, roughness: .4 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x222a27, metalness: .45, roughness: .65 });
     const brass = new THREE.MeshStandardMaterial({ color: 0xa28b4f, metalness: .6, roughness: .45 });
-    this.barrelMaterial = steel;
+    // Only the jacket and muzzle share the heated material; the receiver,
+    // mechanism, grips and ammunition keep their normal finish.
+    this.barrelMaterial = steel.clone();
     this.cannons = [-1, 1].map(side => {
       const barrel = new THREE.Group();
       this.gun.add(barrel);
       const x = side * .19;
       this.mesh(new THREE.BoxGeometry(.16, .18, .55), dark, barrel, x, 0, .04);
       barrel.userData.bolt = this.mesh(new THREE.BoxGeometry(.18, .035, .45), steel, barrel, x, .105, .03);
-      this.mesh(new THREE.CylinderGeometry(.048, .055, .77, 14), steel, barrel, x, .025, -.56).rotation.x = Math.PI / 2;
-      this.mesh(new THREE.CylinderGeometry(.025, .025, .3, 12), dark, barrel, x, .025, -1.08).rotation.x = Math.PI / 2;
+      this.mesh(new THREE.CylinderGeometry(.048, .055, .77, 14), this.barrelMaterial, barrel, x, .025, -.56).rotation.x = Math.PI / 2;
+      this.mesh(new THREE.CylinderGeometry(.025, .025, .3, 12), this.barrelMaterial, barrel, x, .025, -1.08).rotation.x = Math.PI / 2;
       for (let i = 0; i < 9; i++)
         for (const flank of [-1, 1]) this.mesh(new THREE.SphereGeometry(.016, 6, 5), dark, barrel, x + flank * .04, .047, -.24 - i * .077).scale.set(.4, 1, 1);
       for (let i = 0; i < 8; i++) this.mesh(new THREE.CylinderGeometry(.012, .012, .12, 6), brass, barrel, x + side * (.1 + i * .035), -.02 - (i / 8) ** 2 * .1, .08).rotation.x = Math.PI / 2;
@@ -206,12 +211,15 @@ export class BomberView extends ArenaView
     this.cannons[0].position.x = station.guns === 1 ? .19 : 0;
     this.frame.visible = !station.rotating;
     this.turretFrame.visible = Boolean(station.rotating);
+    // The first-person frame/guns replace this station's exterior shell.
+    for (const [part, model] of Object.entries(this.ownBomber?.userData.stationParts || {})) model.visible = part !== key;
     this.camera.updateMatrixWorld();
   }
 
   resetStations()
   {
     this.turretAngles = { ball: { yaw: 0, pitch: -.8 }, top: { yaw: 0, pitch: .3 } };
+    this.bank = 0;
   }
 
   updateStationAim(x, y, dt, game, keys, reducedMotion = false)
@@ -222,12 +230,15 @@ export class BomberView extends ArenaView
       const edge = v => Math.abs(v) < .55 ? 0 : Math.sign(v) * (Math.abs(v) - .55) / .45;
       aim.yaw += (edge(x) + Number(keys.right) - Number(keys.left)) * dt * 1.2;
       aim.yaw = Math.atan2(Math.sin(aim.yaw), Math.cos(aim.yaw));
-      aim.pitch = Math.max(-1.48, Math.min(game.station === 'ball' ? -.04 : 1.48, aim.pitch + (edge(y) + Number(keys.up) - Number(keys.down)) * dt * .85));
+      const station = STATIONS[game.station];
+      aim.pitch = clamp(aim.pitch + (edge(y) + Number(keys.up) - Number(keys.down)) * dt * .85, station.minPitch, station.maxPitch);
     }
     this.setStation(game.station);
     // Freeze the complete camera pose BEFORE directionAt() and muzzlePosition().
     // Rendering must not bank the camera after a shot has used its unbanked ray.
-    this.camera.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), game.flight.bank));
+    this.bank = game.flight.bank;
+    this.camera.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(ROLL_AXIS, this.bank));
+    this.camera.position.sub(AIRCRAFT_CENTER).applyAxisAngle(ROLL_AXIS, this.bank).add(AIRCRAFT_CENTER);
     if (!reducedMotion)
     {
       const t = this.clock;
@@ -236,6 +247,23 @@ export class BomberView extends ArenaView
       this.camera.rotateX(Math.sin(t * 1.1) * .0015);
     }
     this.camera.updateMatrixWorld();
+  }
+
+  directionAt(x, y)
+  {
+    const direction = super.directionAt(x, y), station = STATIONS[this.station];
+    if (!station.rotating) return direction;
+    // Mouse aim and camera traversal share the same airframe-relative stops.
+    // Reaching a stop moves the reticle to the limit, never disables the trigger.
+    direction.applyAxisAngle(ROLL_AXIS, -this.bank);
+    const yaw = Math.atan2(direction.x, -direction.z);
+    const pitch = clamp(Math.asin(clamp(direction.y, -1, 1)), station.minPitch, station.maxPitch);
+    return direction.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)).applyAxisAngle(ROLL_AXIS, this.bank);
+  }
+
+  reticleAt(x, y)
+  {
+    return new THREE.Vector3().copy(this.directionAt(x, y)).multiplyScalar(1000).add(this.camera.position).project(this.camera);
   }
 
   muzzlePosition(barrel, direction)
@@ -317,10 +345,11 @@ export class BomberView extends ArenaView
       if (!model) { model = buildWarbird(this, true); this.bomberModels.set(ally.id, model); }
       model.visible = ally.alive || ally.deadAge < 12;
       model.position.copy(ally.position);
-      model.rotation.set(ally.alive ? 0 : -ally.deadAge * .035, Math.PI, ally.alive ? -game.flight.bank + Math.sin(this.clock * .2 + ally.home.x) * .012 : Math.min(1.2, ally.deadAge * .1));
+      model.rotation.set(ally.pitch, ally.heading, ally.bank, 'YXZ');
       for (const prop of model.userData.propellers) prop.rotation.z = reducedMotion ? 0 : this.clock * 38;
       model.userData.muzzle.visible = ally.alive && ally.flash > 0;
-      if (ally.health < 40 && model.visible) this.smokeAt(ally.position, ally.alive ? 2.5 : 5, dt);
+      model.userData.paint.emissive.setRGB(ally.hitFlash * .8, ally.hitFlash * .25, 0);
+      if (ally.health < ally.maxHealth * .65 && model.visible) this.smokeAt(ally.position, ally.alive ? 2.5 : 5, dt);
       if (ally.alive) for (const x of [-10, -5, 5, 10])
       {
         this.dummy.position.set(ally.position.x + x, ally.position.y, ally.position.z - 145);
@@ -367,10 +396,13 @@ export class BomberView extends ArenaView
 
   attackMarkers(game)
   {
-    return game.targets.filter(t => t.alive && (t.muzzleFlash > 0 || t.health < t.maxHealth)).flatMap(target => {
+    const enemies = game.targets.filter(t => t.alive && (t.muzzleFlash > 0 || t.health < t.maxHealth));
+    const damagedAllies = game.allies.filter(t => t.alive && t.health < t.maxHealth);
+    return [...enemies, ...damagedAllies].flatMap(target => {
       const p = this.flightDirection.copy(target.position).add(new THREE.Vector3(0, 9, 0)).project(this.camera);
       if (p.z < -1 || p.z > 1 || Math.abs(p.x) > .91 || Math.abs(p.y) > .8) return [];
-      return [{ x: (p.x + 1) * 50, y: (1 - p.y) * 50, label: `${target.kind === 'bf109' ? 'Bf 109' : 'Fw 190'} · ${Math.ceil(target.health / target.maxHealth * 100)}%${target.muzzleFlash > 0 ? ' · FIRING' : ''}` }];
+      const name = target.kind ? target.kind === 'bf109' ? 'Bf 109' : 'Fw 190' : 'FRIENDLY B-17';
+      return [{ x: (p.x + 1) * 50, y: (1 - p.y) * 50, label: `${name} · ${Math.ceil(target.health / target.maxHealth * 100)}%${target.muzzleFlash > 0 ? ' · FIRING' : ''}` }];
     });
   }
 }

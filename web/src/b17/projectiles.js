@@ -23,6 +23,7 @@ export class AirborneProjectiles extends ProjectilePool
     Object.assign(shot.previous, origin);
     shot.launchPosition = { ...origin };
     shot.tracerShown = false;
+    shot.deferAdvance = false;
     return true;
   }
 
@@ -32,6 +33,9 @@ export class AirborneProjectiles extends ProjectilePool
     for (const shot of this.slots)
     {
       if (!shot.alive) continue;
+      // AI shots are emitted after the aircraft has advanced this tick. Their
+      // first integration belongs to the following tick, like player launches.
+      if (shot.deferAdvance) { shot.deferAdvance = false; continue; }
       Object.assign(shot.previous, shot.position);
       Object.assign(this.windVector, flight.worldWind(this.game.time, shot.worldPosition));
       shot.simulator.setWind(this.windVector);
