@@ -1,8 +1,8 @@
 # AAAGunner
 
-A browser defense game with three modes: **Coast**, with quad 20 mm cannons against aircraft; **Trench**, with a water-cooled Maxim against charging infantry; and **B-17 Formation**, with six gun stations, supporting bombers, German fighters, and ground flak. All have mouse aiming, three escalating waves over five minutes, three difficulties, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
+A browser defense game with four modes: **Coast**, with quad 20 mm cannons against aircraft; **Trench**, with a water-cooled Maxim against charging infantry; **B-17 Formation**, with six gun stations, supporting bombers, German fighters, and ground flak; and **A-10 Warthog**, where you fly strike passes against tanks with a nose cannon and JDAMs. All have mouse controls, three escalating waves over five minutes, three difficulties, and spatial sound. Play at **https://chasep255.github.io/AAAGunner/**.
 
-Choose **Mode** before deploying. Pause and use **Stop and change settings** to switch modes. The modes share the projectile engine, effects, audio, menus, and controls while keeping their combat rules and scenes separate.
+Choose **Mode** before deploying. Pause and use **Stop and change settings** to switch modes. The modes share the projectile engine, effects, audio, and menus while keeping their combat rules and scenes separate.
 
 ## Coast
 
@@ -63,18 +63,30 @@ Choose **270, 342, or 414 km/h true airspeed** before deploying. Bullets inherit
 
 The .50 calibre profile is arcade tuning: 880 m/s muzzle velocity, 46 g projectile, G1 BC 0.62, and a 1.4 km / four-second projectile boundary. Airframe durability, cadence, heat, flight paths, flak, and gun arcs are also game rules. Local propeller wash, wake turbulence, spin drift, and detailed aircraft aerodynamics are not simulated. Physics checks cover inherited velocity, moving-frame equivalence, steady wind, gust drift, altitude, and bullet inertia through turns.
 
+## A-10 Warthog
+
+Fly a modeled A-10 style aircraft in a chase view over a desert valley. Hunt patrolling tanks with the fixed 30 mm nose cannon and guided JDAMs. Tanks track your aircraft and lead it with visible orange rounds; bank or change altitude to evade. Airframe damage is permanent, terrain collisions end the flight, and a warning appears below 85 metres above the ground. An announced flight assist turns you back at the edge of the combat area. The HUD shows speed, altitude above terrain, throttle, target range, and the bearing to the nearest tank.
+
+The controls use assisted mouse steering: move up to climb, down to dive, and sideways to turn. Center the mouse to level out. **W/S** increases/decreases throttle; **A/D** banks. Arrow keys can also steer. The small **STEER** circle shows the control input, while the larger crosshair shows the cannon’s bore line. Hold **left mouse or Space** to fire; pitch the aircraft to line up the cannon. Rounds inherit aircraft velocity and use the shared WASM gravity/drag engine. Allow for bullet drop at long range. Eight direct hits destroy a tank; short bursts avoid overheating. Ammunition is unlimited.
+
+Point the nose toward a tank inside 2.4 km, above 65 m altitude, until its marker says **JDAM**. **Right-click, M, or Drop JDAM** releases a bomb toward the ground coordinates captured at release. Bombs use bounded arcade glide guidance; moving tanks can leave the blast. Four bombs are carried, releases are spaced by 1.1 seconds, and one replenishes every 16 seconds. Nearby bomb blasts can damage your aircraft. Pausing freezes flight, combat, heat, and rearming. Restart restores the aircraft, targets, and weapons. Touch players can drag to steer and fire and use the JDAM button at the default cruise throttle.
+
+Survive three 100-second waves. Initial tank counts are 7 / 10 / 14 on Relaxed / Arcade / Frenzy, with three more slots per wave and replacements arriving throughout the round. Kills earn 150 points with streaks up to ×5 for kills within eight seconds. Bomb hits do not count toward gun accuracy. Flight assistance, tank anti-aircraft fire, ammunition, guidance, performance, and damage are fictional arcade tuning, not verified aircraft or weapon specifications.
+
 ## Controls
 
 | Action | Control |
 | --- | --- |
 | Aim | Mouse movement |
 | Fire gun | Hold left mouse or Space |
-| Fire missile (Coast) | Right mouse or M |
+| Fire missile (Coast) / drop JDAM (A-10) | Right mouse or M |
+| Steer aircraft (A-10) | Mouse; center to level out; arrow keys also steer |
+| Throttle / bank (A-10) | W/S throttle; A/D bank |
 | Take cover (Trench) | Hold C; right mouse or Take cover toggles it |
 | Pause / resume | P or Escape |
 | Change gun station (B-17) | 1–6 or the station buttons |
 | Rotate ball / upper turret (B-17) | Mouse toward screen edge or arrow keys |
-| Restart | Restart button; R in Coast and B-17 |
+| Restart | Restart button; R in Coast, B-17, and A-10 |
 | Change mode or difficulty | Pause, then Stop and change settings |
 
 Touch players can drag to aim and fire, and use the on-screen missile and cover buttons. Volume and the aim-ahead indicator remain adjustable while paused. Switching tabs or losing focus pauses the game. Scores stay in memory for the current visit, separately for each mode.
@@ -93,6 +105,7 @@ Open **http://localhost:8002**. Use `PORT=8080 ./build.sh -s` for a different po
 
 - `web/src/main.js`: input, menus, HUD, and the fixed-step game loop.
 - `web/src/modes.js`: mode registry and mode-specific presentation and setup.
+- `web/src/a10/`: assisted player flight, tank combat, cannon/JDAM weapons, aircraft models, and desert scenery.
 - `web/src/b17/`: formation combat, gun stations, flak, moving-aircraft ballistics, aircraft models, and scenery.
 - `web/src/trench/`: infantry and biplane attacks, Maxim, cover, friendly artillery, shared deformable terrain, trench scenery, and blood effects.
 - `web/src/gun-sight.js`: aim-ahead cue using the game’s projectile flight model.
@@ -108,7 +121,7 @@ The game is standalone. Its projectile engine originated in Ballistics Toolkit, 
 
 ## Tests
 
-After building the physics module, run `npm test` (Node.js 22 or newer). The tests use the compiled WASM module and cover airborne ballistics, collisions, multi-hit damage, flak, support kills, all six guns, round lifecycle, and Coast/Trench compatibility.
+After building the physics module, run `npm test` (Node.js 22 or newer). The tests use the compiled WASM module and cover airborne ballistics, collisions, multi-hit damage, flak, support kills, all six guns, round lifecycle, Coast/Trench compatibility, and A-10 flight controls, cannon/tank collisions, JDAM guidance and rearming, incoming fire, camera alignment, and round lifecycle.
 
 ## Deployment
 

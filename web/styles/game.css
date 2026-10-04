@@ -241,3 +241,29 @@ dialog::backdrop { background: #06151ec9; backdrop-filter: blur(6px); }
 #coverBtn[aria-pressed="true"] {background:#405a42;}
 
 .arena.bayoneted .damage-overlay {z-index:2; opacity:1; transition:opacity .05s; box-shadow:inset 0 0 130px 55px #580505e0; background:radial-gradient(ellipse at 47% 77%,#9b1012b8 0 8%,transparent 9%),radial-gradient(ellipse at 65% 66%,#87080abd 0 5%,transparent 6%),radial-gradient(ellipse at 27% 62%,#720506b8 0 4%,transparent 5%),radial-gradient(ellipse at 39% 44%,#92080aaa 0 1%,transparent 2%),radial-gradient(ellipse at 68% 31%,#800706bb 0 1.5%,transparent 2%),linear-gradient(0deg,#620508b0,transparent 70%);}
+
+.arena[data-mode="a10"] { --accent: #efd194; --green: #b5e9be; }
+.a10-flight { position: absolute; bottom: 205px; left: 50%; transform: translateX(-50%); padding: 11px 18px; border: 1px solid #c9e5c345; background: #112029d9; text-align: center; font: 11px 'Courier New', monospace; white-space: nowrap; pointer-events: none; }
+.a10-flight strong, .a10-flight span { display: block; }
+.a10-flight strong { color: #d9f4d5; font-size: 13px; }
+.a10-flight span { margin-top: 7px; }
+#a10Navigation { color: #ffe2a4; }
+#a10Warning { font-size: 9px; color: #c5d6cf; }
+.a10-flight.low-altitude { border-color: #ff895d; }
+.a10-flight.low-altitude #a10Warning { color: #ffad80; font-weight: bold; }
+.flight-cursor { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; border: 1px solid #d6f3d6b0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 1px 3px #0008; }
+.flight-cursor span { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); font: 8px 'Courier New', monospace; color: #e4f5de; text-shadow: 0 1px 3px #000; }
+.panel-open .a10-flight, .panel-open .flight-cursor { visibility: hidden; }
+.arena[data-mode="a10"] .attack-indicators span { background: #202719b8; font-size: 9px; color: #fff0c9; border-color: #e4ca87; }
+.arena[data-mode="a10"] .attack-indicators .target-lock { border: 2px solid #bcf6ba; color: #d9ffd1; background: #173b26d9; }
+.arena[data-mode="a10"] .reticle { border-color: #caffb7; }
+@media (max-width: 600px) {
+  .a10-flight { bottom: 161px; padding: 8px; font-size: 9px; max-width: calc(100% - 16px); }
+  .a10-flight strong { font-size: 10px; }
+  #a10Warning { font-size: 8px; }
+  .arena[data-mode="a10"] .quick-keys { gap: 6px; flex-wrap: wrap; }
+  .arena[data-mode="a10"] .quick-keys #secondaryKeys { display: inline; }
+}
+@media (max-height: 550px) and (min-width: 601px) {
+  .a10-flight { bottom: 52px; padding: 6px 10px; }
+}

@@ -5,6 +5,44 @@ import
 from './game.js';
 import { FORMATION_OFFSETS } from './b17/flight.js';
 export const MODES = {
+  a10:
+  {
+    label: 'A-10 Warthog',
+    description: 'Fly the Warthog over a desert battlefield. Strafe tanks with the nose cannon and drop guided JDAMs while dodging return fire. Mouse steers, W/S adjusts throttle, A/D banks. Survive three waves over five minutes.',
+    eyebrow: 'A-10 · CLOSE AIR SUPPORT',
+    threat: 'HUNT ARMOR · WATCH YOUR ALTITUDE',
+    weapon: 'GAU-8 STYLE · 30 MM',
+    ammo: 'NOSE CANNON · UNLIMITED AMMO',
+    range: '2 KM',
+    healthLabel: 'AIRFRAME',
+    secondaryLabel: 'JDAM · GUIDED BOMB',
+    action: 'Drop JDAM',
+    actionHint: 'Mouse steers, W/S throttle, A/D bank. Right-click or M drops a JDAM on the marked tank',
+    heatLabel: 'CANNON HEAT',
+    stat: 'TANKS',
+    fact: '4 JDAMS',
+    location: 'DUST VALLEY · STRIKE PATROL',
+    defeatTitle: game => game.endReason === 'crashed' ? 'Aircraft crashed' : 'Shot down',
+    gunSound: 'avenger',
+    secondary(game) { game.dropJdam(); },
+    defeat(game)
+    {
+      return `${game.endReason === 'crashed' ? 'You hit the terrain. Pull the mouse upward to climb and watch the altitude warning.' : 'Tank fire brought you down. Bank between passes to evade the orange tracers.'} You destroyed ${game.destroyed} tanks in ${Math.floor(game.time)} seconds.`;
+    },
+    success(game) { return `Strike patrol complete. ${game.destroyed} tanks destroyed with ${Math.ceil(game.healthPercent)}% airframe remaining.`; },
+    async create(physics, canvas)
+    {
+      const [{ A10View }, { A10Game }] = await Promise.all([import('./a10/scene.js'), import('./a10/game.js')]);
+      const view = new A10View(canvas);
+      try
+      {
+        const game = new A10Game(physics);
+        view.syncFlight(game);
+        return { view, game };
+      }
+      catch (error) { view.dispose(); throw error; }
+    }
+  },
   b17:
   {
     label: 'B-17 Formation',

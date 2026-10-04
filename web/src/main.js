@@ -20,6 +20,7 @@ import
 }
 from './screen-blood.js';
 const ui = Object.fromEntries([
+  'a10Help', 'a10Flight', 'a10Telemetry', 'a10Navigation', 'a10Warning', 'flightCursor', 'flightKeys', 'aimKeys',
   'b17Help', 'formationStatus', 'wingmenStatus', 'flightStatus', 'stationControls', 'stationOption', 'stationSelect', 'speedOption', 'flightSpeed',
   'trenchDefense', 'lineStatus', 'supportStatus', 'coverBtn', 'suppressionStatus', 'modeSelect', 'modeFact', 'modeLocation', 'modeThreat', 'secondaryKeys', 'secondaryPanel', 'healthLabel', 'weaponLabel', 'secondaryLabel', 'heatLabel', 'targetLabel', 'coastHelp', 'trenchHelp',
   'skyCanvas', 'arena', 'engineStatus', 'soundBtn', 'fullscreenBtn', 'pauseBtn', 'stopBtn', 'panelStopBtn',
@@ -40,6 +41,8 @@ let pointerFiring = false,
   spaceFiring = false,
   activePointer = null;
 const turretKeys = { left: false, right: false, up: false, down: false };
+const flightKeys = { left: false, right: false, up: false, down: false, faster: false, slower: false };
+const flightKeyMap = { KeyA: 'left', KeyD: 'right', KeyW: 'faster', KeyS: 'slower', ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
 let aimX = 0,
   aimY = 0,
   toastUntil = 0,
@@ -64,6 +67,8 @@ function clearInput()
   pointerFiring = false;
   spaceFiring = false;
   for (const key of Object.keys(turretKeys)) turretKeys[key] = false;
+  for (const key of Object.keys(flightKeys)) flightKeys[key] = false;
+  if (game && modeKey === 'a10') { game.input = {}; aimX = aimY = 0; }
   if (game && modeKey === 'trench') game.ducking = false;
   if (activePointer !== null && ui.skyCanvas.hasPointerCapture(activePointer)) ui.skyCanvas.releasePointerCapture(activePointer);
   activePointer = null;
@@ -105,7 +110,7 @@ function showPanel(mode)
   else if (mode === 'paused')
   {
     ui.panelTitle.textContent = 'Paused';
-    ui.panelDescription.textContent = 'The round, combat, cooling, and health recovery are paused.';
+    ui.panelDescription.textContent = modeKey === 'a10' ? 'Flight, combat, cooling, and JDAM rearming are paused.' : 'The round, combat, cooling, and health recovery are paused.';
     setStartLabel('Resume');
   }
   else if (mode === 'stopped')
@@ -162,15 +167,20 @@ function configureMode()
   ui.modeLocation.textContent = modeSpec.location;
   ui.modeThreat.textContent = modeSpec.threat || (modeKey === 'trench' ? 'INFANTRY ASSAULT · HOLD THE LINE' : 'AIRCRAFT INBOUND · ALL SECTORS');
   ui.secondaryKeys.innerHTML = modeKey === 'b17' ? '<kbd>1–6</kbd> GUN STATION' : modeKey === 'trench' ? '<kbd>RMB / C</kbd> COVER' : '<kbd>RMB / M</kbd> MISSILE';
+  if (modeKey === 'a10') ui.secondaryKeys.innerHTML = '<kbd>RMB / M</kbd> JDAM';
+  ui.aimKeys.innerHTML = modeKey === 'a10' ? '<kbd>MOUSE</kbd> STEER' : '<kbd>MOUSE</kbd> AIM';
+  for (const element of [ui.a10Help, ui.a10Flight, ui.flightCursor, ui.flightKeys]) element.hidden = modeKey !== 'a10';
+  ui.leadAssist.closest('label').hidden = modeKey === 'a10';
+  if (modeKey === 'a10') ui.gunGuide.textContent = 'FIXED NOSE SIGHT · 2 KM';
   ui.coastHelp.hidden = modeKey !== 'coast';
   ui.trenchHelp.hidden = modeKey !== 'trench';
   for (const element of [ui.b17Help, ui.formationStatus, ui.stationControls, ui.stationOption, ui.speedOption]) element.hidden = modeKey !== 'b17';
   if (modeKey === 'b17') changeStation(ui.stationSelect.value);
   ui.trenchDefense.hidden = modeKey !== 'trench';
   ui.coverBtn.hidden = modeKey !== 'trench';
-  ui.secondaryPanel.hidden = modeKey !== 'coast';
-  ui.healthMeter.setAttribute('aria-label', modeKey === 'b17' ? 'Bomber hull integrity' : 'Player health');
-  ui.skyCanvas.setAttribute('aria-label', `Move the mouse to aim. Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
+  ui.secondaryPanel.hidden = !['coast', 'a10'].includes(modeKey);
+  ui.healthMeter.setAttribute('aria-label', modeKey === 'b17' ? 'Bomber hull integrity' : modeKey === 'a10' ? 'Airframe integrity' : 'Player health');
+  ui.skyCanvas.setAttribute('aria-label', `${modeKey === 'a10' ? 'Move the mouse to steer.' : 'Move the mouse to aim.'} Hold left mouse or Space to fire. ${modeSpec.actionHint}. P or Escape pauses.`);
   ui.heatWarning.firstChild.textContent = modeKey === 'trench' ? 'WATER JACKET HOT ' : 'BARRELS HOT ';
   ui.heatWarning.querySelector('span').textContent = modeKey === 'trench' ? 'Let it cool' : 'Let them cool';
   ui.bombWarning.querySelector('strong').textContent = modeKey === 'trench' ? 'LINE IN DANGER' : 'BOMB INBOUND';
@@ -272,6 +282,7 @@ function beginRound(resume = false)
       view.clearEffects();
       audio.clear();
       aimX = aimY = 0;
+      if (modeKey === 'a10') view.syncFlight(game);
       positionReticle();
       ui.toast.textContent = '';
       toastUntil = hitUntil = damageUntil = 0;
@@ -337,6 +348,11 @@ function positionReticle()
   const point = view?.reticleAt?.(aimX, aimY) || { x: aimX, y: aimY };
   ui.reticle.style.left = `${(point.x + 1) * 50}%`;
   ui.reticle.style.top = `${(1 - point.y) * 50}%`;
+  if (modeKey === 'a10')
+  {
+    ui.flightCursor.style.left = `${(aimX + 1) * 50}%`;
+    ui.flightCursor.style.top = `${(1 - aimY) * 50}%`;
+  }
 }
 
 function changeStation(key)
@@ -382,7 +398,7 @@ function updateHud()
   ui.healthFill.style.width = `${game.healthPercent}%`;
   ui.healthMeter.setAttribute('aria-valuenow', health);
   ui.healthMeter.classList.toggle('low', health <= 30);
-  const incoming = game.enemyShots.length > 0 || game.bombs.some(bomb => bomb.alive);
+  const incoming = game.enemyShots.length > 0 || (modeKey !== 'a10' && game.bombs.some(bomb => bomb.alive));
   const bombs = game.bombs.filter(bomb => bomb.alive);
   ui.bombWarning.hidden = game.state !== 'playing' || bombs.length === 0;
   if (bombs.length) ui.bombTime.textContent = `SHOOT IT DOWN · ${Math.max(0, Math.min(...bombs.map(bomb => bomb.duration - bomb.age))).toFixed(1)}s`;
@@ -395,6 +411,7 @@ function updateHud()
     marker.textContent = position.label || 'FIRING';
     if (position.bomb) marker.classList.add('bomb-marker');
     if (position.allied) marker.classList.add('ally-marker');
+    if (position.locked) marker.classList.add('target-lock');
     marker.style.left = `${position.x}%`;
     marker.style.top = `${position.y}%`;
     return marker;
@@ -417,6 +434,22 @@ function updateHud()
   ui.missileBtn.disabled = game.state !== 'playing' || empty;
   ui.gunStatus.textContent = game.overheated ? 'COOLING DOWN' : game.spool > 0.2 ? 'FIRING' : 'READY';
   driveBars.forEach((bar, i) => bar.classList.toggle('active', game.spool > i / 8));
+  if (modeKey === 'a10')
+  {
+    const target = game.jdamTarget();
+    const ready = Boolean(target) && game.missileAmmo > 0 && game.releaseCooldown <= 0;
+    ui.bombWarning.hidden = true;
+    ui.healthStatus.textContent = incoming ? 'INCOMING TANK FIRE' : game.health < 100 ? 'AIRFRAME DAMAGED' : 'AIRFRAME READY';
+    ui.missileStatus.textContent = `${game.missileAmmo}/4 · ${game.missileAmmo === 0 ? 'EMPTY' : game.releaseCooldown > 0 ? 'RELEASING' : target ? 'TARGET MARKED' : 'NO TARGET'}`;
+    ui.missileReload.textContent = game.missileCooldown > 0 ? `+1 IN ${game.missileCooldown.toFixed(1)}s · ${game.bombs.length} IN FLIGHT` : 'POINT NOSE AT TANK · 2.4 KM';
+    ui.missileBtn.disabled = game.state !== 'playing' || !ready;
+    ui.missileStatus.parentElement.classList.toggle('locked', ready);
+    ui.reticle.classList.toggle('locked', ready);
+    ui.a10Telemetry.textContent = `${Math.round(game.flight.speed * 3.6)} KM/H  ·  ALT ${Math.max(0, Math.round(game.flight.altitude))} M  ·  THR ${Math.round(game.flight.throttle * 100)}%`;
+    ui.a10Navigation.textContent = view.navigation(game);
+    ui.a10Warning.textContent = game.flight.returning ? 'RETURNING TO COMBAT AREA · ASSIST ACTIVE' : game.flight.altitude < 85 ? 'PULL UP · MOVE MOUSE UP' : 'MOUSE STEERS · CENTER TO LEVEL OUT';
+    ui.a10Flight.classList.toggle('low-altitude', game.flight.altitude < 85);
+  }
   if (modeKey === 'b17')
   {
     const turret = view.turretAngles[game.station];
@@ -497,7 +530,7 @@ ui.missileBtn.addEventListener('click', () =>
 ui.pauseBtn.addEventListener('click', pause);
 ui.leadAssist.addEventListener('change', () =>
 {
-  ui.gunGuide.textContent = `${ui.leadAssist.checked ? 'AIM AT GOLD RING' : 'GUN RANGE'} · ${modeSpec.range}`;
+  ui.gunGuide.textContent = modeKey === 'a10' ? 'FIXED NOSE SIGHT · 2 KM' : `${ui.leadAssist.checked ? 'AIM AT GOLD RING' : 'GUN RANGE'} · ${modeSpec.range}`;
   if (game && view) updateHud();
 });
 
@@ -553,6 +586,25 @@ ui.skyCanvas.addEventListener('pointermove', event =>
   if (activePointer !== null && event.pointerId !== activePointer) return;
   moveAim(event);
 });
+// Mouse button events also fire when the other button is already held.
+ui.skyCanvas.addEventListener('mousedown', event =>
+{
+  if (game?.state === 'playing' && modeKey === 'a10')
+  {
+    moveAim(event);
+    ui.skyCanvas.focus({ preventScroll: true });
+    if (event.button === 2) secondaryAction();
+    if (event.button === 0) pointerFiring = true;
+    event.preventDefault();
+  }
+});
+window.addEventListener('mouseup', event =>
+{
+  if (modeKey !== 'a10' || event.button !== 0) return;
+  pointerFiring = false;
+  if (activePointer !== null && ui.skyCanvas.hasPointerCapture(activePointer)) ui.skyCanvas.releasePointerCapture(activePointer);
+  activePointer = null;
+});
 ui.skyCanvas.addEventListener('pointerdown', event =>
 {
   if (game?.state !== 'playing' || event.button !== 0 || activePointer !== null) return;
@@ -564,7 +616,8 @@ ui.skyCanvas.addEventListener('pointerdown', event =>
   activePointer = event.pointerId;
   ui.skyCanvas.setPointerCapture(event.pointerId);
   pointerFiring = true;
-  event.preventDefault();
+  // Preserve mouse button events for A-10, including right-click during a burst.
+  if (modeKey !== 'a10' || event.pointerType !== 'mouse') event.preventDefault();
 });
 const releasePointer = event =>
 {
@@ -579,6 +632,7 @@ ui.skyCanvas.addEventListener('lostpointercapture', releasePointer);
 ui.skyCanvas.addEventListener('contextmenu', event =>
 {
   event.preventDefault();
+  if (modeKey === 'a10') return;
   moveAim(event);
   secondaryAction();
 });
@@ -590,6 +644,11 @@ window.addEventListener('keydown', event =>
     return;
   }
   if (!game || event.target.closest('input, select, textarea, button') || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (modeKey === 'a10' && game.state === 'playing' && flightKeyMap[event.code])
+  {
+    flightKeys[flightKeyMap[event.code]] = true;
+    event.preventDefault();
+  }
   if (event.code === 'Space' && game.state === 'playing')
   {
     spaceFiring = true;
@@ -612,7 +671,7 @@ window.addEventListener('keydown', event =>
     updateHud();
     event.preventDefault();
   }
-  if (event.code === 'KeyM' && modeKey === 'coast')
+  if (event.code === 'KeyM' && ['coast', 'a10'].includes(modeKey))
   {
     secondaryAction();
     event.preventDefault();
@@ -627,6 +686,7 @@ window.addEventListener('keydown', event =>
 });
 window.addEventListener('keyup', event =>
 {
+  if (flightKeyMap[event.code]) flightKeys[flightKeyMap[event.code]] = false;
   if (event.code === 'Space') spaceFiring = false;
   if (event.code.startsWith('Arrow')) turretKeys[event.code.slice(5).toLowerCase()] = false;
   if (event.code === 'KeyC' && modeKey === 'trench' && game) game.ducking = false;
@@ -670,7 +730,8 @@ try
       const elapsed = Math.max(0, Math.min(0.12, (timestamp - (lastFrame || timestamp)) / 1000));
       lastFrame = timestamp;
       view.updateStationAim?.(aimX, aimY, elapsed, game, turretKeys, reducedMotion.matches);
-      if (modeKey === 'b17') positionReticle();
+      if (modeKey === 'b17' || modeKey === 'a10') positionReticle();
+      if (modeKey === 'a10') game.input = { ...flightKeys, x: aimX, y: aimY };
       const direction = view.directionAt(aimX, aimY);
       if (['playing', 'overrun', 'dying'].includes(game.state))
       {
@@ -684,6 +745,15 @@ try
       else accumulator = 0;
       for (const event of game.events)
       {
+        // Other modes use listener-local coordinates; A-10 events live in the world.
+        const soundPosition = modeKey === 'a10' && event.position ? view.soundPosition(event.position) : event.position;
+        if (event.type === 'a10Notice' || event.type === 'jdamRelease')
+        {
+          ui.toast.textContent = event.message || 'JDAM AWAY · COORDINATES SET';
+          toastUntil = timestamp + 1600;
+          if (event.type === 'jdamRelease') audio.event('reload', null, game.time);
+        }
+        if (event.type === 'tankShot') audio.event('distantImpact', soundPosition, game.time);
         if (event.type === 'shot')
         {
           view.gunShot(event.barrel);
@@ -692,13 +762,13 @@ try
         if (event.type === 'shellImpact')
         {
           view.burst(event.position, false, null, true);
-          audio.event('shellImpact', event.position, game.time);
+          audio.event('shellImpact', soundPosition, game.time);
         }
         if (event.type === 'hit')
         {
           hitUntil = timestamp + 100;
           if (modeKey === 'b17') view.burst(event.position, false);
-          audio.event('hit', event.position, game.time);
+          audio.event('hit', soundPosition, game.time);
         }
         if (event.type === 'friendlyHit')
         {
@@ -712,7 +782,7 @@ try
           if (event.kind !== 'infantry' && event.kind !== 'biplane') view.burst(event.position, true, event.velocity);
           ui.toast.textContent = `+${event.points}  ${event.part === 'head' ? 'HEADSHOT' : 'TARGET DOWN'}`;
           toastUntil = timestamp + 1400;
-          if (event.kind !== 'infantry' && event.kind !== 'biplane') audio.event('explosion', event.position, game.time);
+          if (event.kind !== 'infantry' && event.kind !== 'biplane') audio.event('explosion', soundPosition, game.time);
         }
         if (event.type === 'fighterDown' || event.type === 'bomberLost')
         {
@@ -751,7 +821,7 @@ try
         if (event.type === 'bombImpact' || event.type === 'bombDestroyed')
         {
           view.burst(event.position, true);
-          audio.event('explosion', event.position, game.time);
+          audio.event('explosion', soundPosition, game.time);
           if (event.type === 'bombDestroyed')
           {
             ui.toast.textContent = '+50  BOMB INTERCEPTED';
